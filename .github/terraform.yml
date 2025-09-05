@@ -1,0 +1,84 @@
+
+# GitHub Actions workflow for chat-dash-document Terraform
+# - Separate jobs for plan and apply
+# - Plan runs on all branches, apply only on main after approval
+# - Plan outputs a table of changes
+# - Apply requires manual approval
+name: Terraform Chat-Dash-Document CI/CD
+on:
+  push:
+    paths:
+      - 'chatbot-document/**'
+  pull_request:
+    paths:
+      - 'chatbot-document/**'
+  workflow_dispatch:
+jobs:
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: chatbot-document
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+      - name: Terraform Init
+        run: terraform init
+      - name: Terraform Format
+        run: terraform fmt -check
+      - name: Terraform Validate
+        run: terraform validate
+      - name: Terraform Plan
+        id: plan
+        run: terraform plan -no-color -out=tfplan.txt
+      - name: Show Plan Changes (Table)
+        id: show
+        run: |
+          terraform show -no-color tfplan.txt > plan.txt
+          echo '::group::Terraform Plan'
+          cat plan.txt
+          echo '::endgroup::'
+      - name: Upload Plan Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: chatbot-document/tfplan.txt
+      - name: Add Plan Summary
+        run: |
+          echo '### Terraform Plan Output' >> $GITHUB_STEP_SUMMARY
+          echo '\n\n' >> $GITHUB_STEP_SUMMARY
+          echo '\n\n<details><summary>Show Plan</summary>' >> $GITHUB_STEP_SUMMARY
+          echo '\n' >> $GITHUB_STEP_SUMMARY
+          cat plan.txt >> $GITHUB_STEP_SUMMARY
+          echo '\n</details>' >> $GITHUB_STEP_SUMMARY
+  terraform-apply:
+    name: Terraform Apply
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    defaults:
+      run:
+        working-directory: chatbot-document
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+      - name: Download Plan Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: .
+      - name: Terraform Init
+        run: terraform init
+      - name: Terraform Apply (Manual Approval Required)
+        run: terraform apply -auto-approve tfplan.txt

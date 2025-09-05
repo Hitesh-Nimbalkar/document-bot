@@ -1,0 +1,17 @@
+
+# Core AWS and YAML
+boto3
+pyyaml
+# LLM and LangChain
+langchain
+langchain-core
+# Document parsing
+PyPDF2
+python-docx
+textract
+# Validation and models
+pydantic
+# Vector DB
+qdrant-client
+# Other common dependencies
+botocore
