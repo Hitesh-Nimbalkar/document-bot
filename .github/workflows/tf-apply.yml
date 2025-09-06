@@ -1,0 +1,57 @@
+# GitHub Actions workflow for Terraform Apply with automatic lock release
+# - Runs plan + apply together
+# - Checks and removes stale locks in DynamoDB S3 backend
+
+name: Terraform Apply
+
+on:
+  workflow_dispatch:
+
+jobs:
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Debug AWS Identity
+        run: aws sts get-caller-identity
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.5
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Check for existing lock and remove
+        run: |
+          LOCK_TABLE="msumani-terraform-lock"
+          STATE_KEY="terraform.tfstate"
+          LOCK_ITEM=$(aws dynamodb get-item --table-name $LOCK_TABLE --key "{\"LockID\":{\"S\":\"$STATE_KEY\"}}" || echo "")
+          if [ -n "$LOCK_ITEM" ]; then
+            echo "🔒 Found existing lock. Releasing..."
+            aws dynamodb delete-item --table-name $LOCK_TABLE --key "{\"LockID\":{\"S\":\"$STATE_KEY\"}}"
+            echo "✅ Lock released."
+          else
+            echo "No existing lock found."
+          fi
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+
+      - name: Show Outputs
+        run: terraform output

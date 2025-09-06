@@ -1,0 +1,37 @@
+name: Terraform Plan
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.5
+
+      - name: Terraform Init
+        run: terraform init -reconfigure
+
+      - name: Terraform Plan
+        run: terraform plan -no-color -out=tfplan | tee plan.txt
+
+      - name: Upload Plan Output
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-plan
+          path: plan.txt
