@@ -10,8 +10,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Step 1: Checkout repo
       - uses: actions/checkout@v4
 
+      # Step 2: Configure AWS credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -19,19 +21,39 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ap-south-1
 
+      # Step 3: Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.9.5
 
+      # Step 4: Initialize Terraform
       - name: Terraform Init
         run: terraform init -reconfigure
 
+      # Step 5: Run Terraform Plan
       - name: Terraform Plan
-        run: terraform plan -no-color -out=tfplan | tee plan.txt
+        run: terraform plan -no-color -out=tfplan > plan.txt
 
+      # Step 6: Save Terraform Plan as artifact
       - name: Upload Plan Output
         uses: actions/upload-artifact@v4
         with:
           name: terraform-plan
           path: plan.txt
+
+      # Step 7: Convert plan to JSON and generate Markdown summary
+      - name: Terraform Plan Summary Table
+        run: |
+          terraform show -json tfplan > plan.json
+          echo "### Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource Name | Create | Update | Delete | Read |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------------|--------|--------|--------|------|" >> $GITHUB_STEP_SUMMARY
+          jq -r '
+            .resource_changes[]
+            | "| \(.type).\(.name) | " +
+              (if (.change.actions | index("create")) then "🟢" else "" end) + " | " +
+              (if (.change.actions | index("update")) then "🟡" else "" end) + " | " +
+              (if (.change.actions | index("delete")) then "🔴" else "" end) + " | " +
+              (if (.change.actions | index("read"))   then "🔵" else "" end) + " |"
+          ' plan.json >> $GITHUB_STEP_SUMMARY

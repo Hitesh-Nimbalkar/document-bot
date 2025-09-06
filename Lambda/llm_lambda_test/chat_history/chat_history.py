@@ -2,8 +2,36 @@
 from models.models import ChatHistoryModel
 import boto3
 import os
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any
+from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field
+# ---------------------------
+# Chat message (LangChain compatible)
+# ---------------------------
+class ChatMessage(BaseModel):
+    message_id: str
+    timestamp: str
+    role: str  # 'user', 'assistant', or 'system'
+    content: str
+    reply_to: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+    model_config = {
+        "populate_by_name": True,  # allows using alias names if needed
+    }
+
+# ---------------------------
+# Chat history for a session
+# ---------------------------
+class ChatHistoryModel(BaseModel):
+    project_id: str
+    user_id: str
+    session_id: str
+    messages: List[ChatMessage] = Field(default_factory=list)
+
+
 class ChatHistory:
     @staticmethod
     def as_pydantic_model(history_dict) -> 'ChatHistoryModel':
@@ -75,3 +103,31 @@ class ChatHistory:
         # Validate and serialize with Pydantic
         model = ChatHistoryModel.parse_obj(history_dict)
         return model.dict()
+
+
+# -----------------------------
+# Chat logging helper
+# -----------------------------
+def log_chat_history(event, payload, role, content, reply_to=None, metadata=None):
+    chat_history = ChatHistory()
+    project_id = (
+        payload.get("project_id")
+        or payload.get("project_name")
+        or event.get("project_id")
+        or event.get("project_name")
+    )
+    user_id = payload.get("user_id") or event.get("user_id")
+    session_id = payload.get("session_id") or event.get("session_id")
+    message_id = str(uuid.uuid4())
+
+    chat_history.append_message(
+        project_id=project_id,
+        user_id=user_id,
+        session_id=session_id,
+        role=role,
+        content=content,
+        message_id=message_id,
+        reply_to=reply_to,
+        metadata=metadata,
+    )
+    return message_id

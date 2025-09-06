@@ -1,0 +1,9 @@
+boto3
+structlog
+pyyaml
+fastapi
+uvicorn
+pydantic==1.10.11
+PyPDF2
+python-docx
+textract==1.6.3

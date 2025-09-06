@@ -2,7 +2,7 @@ pydantic==1.10.11
 fastapi
 uvicorn
 boto3
-pyyaml
+
 
 # Document parsing
 PyPDF2

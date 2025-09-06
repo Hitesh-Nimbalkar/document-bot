@@ -1,0 +1,19 @@
+
+faiss_db:
+  collection_name: "document_portal"
+embedding_models:
+  bedrock:
+    provider: "google"
+    model_name: "models/text-embedding-004"
+    import_path: "langchain_google_genai.GoogleGenerativeAIEmbeddings"
+    api_key_env: "GOOGLE_API_KEY"
+retriever:
+  top_k: 10
+llms:
+  bedrock:
+    provider: "bedrock"
+    model_name: "anthropic.claude-3-sonnet-20240229-v1:0"
+    temperature: 0.2
+    max_output_tokens: 2048
+    import_path: "langchain_aws.ChatBedrock"
+    # Bedrock uses IAM, so no api_key_env needed
