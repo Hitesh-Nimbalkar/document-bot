@@ -43,29 +43,30 @@ class DocumentComparisonResult(BaseModel):
 # ---------------------------
 # Data analysis metadata
 # ---------------------------
+class Entity(BaseModel):
+    """Represents extracted entities from the document"""
+    text: str
+    type: str
+    start_pos: Optional[int] = None
+    end_pos: Optional[int] = None
+
+
+class SectionSummary(BaseModel):
+    """Summary for a specific section of the document"""
+    section_title: Optional[str] = None
+    summary_text: str
+
+
 class DataAnalysisMetadata(BaseModel):
+    """Structured metadata for the analyzed document"""
     title: Optional[str] = None
     author: Optional[str] = None
-    date: Optional[str] = None
-    summary: Optional[str] = None
-    keywords: Optional[List[str]] = None
+    date_created: Optional[str] = None
     document_type: Optional[str] = None
-    ingest_source: Optional[str] = None
-    source_path: Optional[str] = None
-    embedding_model: Optional[str] = None
-
-# ---------------------------
-# Chat message (LangChain compatible)
-# ---------------------------
-class ChatMessage(BaseModel):
-    message_id: str
-    timestamp: str
-    role: str  # 'user', 'assistant', or 'system'
-    content: str
-    reply_to: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-    model_config = {
-        "populate_by_name": True,  # allows using alias names if needed
-    }
-
+    language: Optional[str] = None
+    num_pages: Optional[int] = None
+    keywords: Optional[List[str]] = None
+    entities: Optional[List[Entity]] = None
+    summary: Optional[str] = None
+    section_summaries: Optional[List[SectionSummary]] = None
+    additional_metadata: Optional[Dict[str, str]] = None

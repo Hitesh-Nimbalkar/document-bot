@@ -3,6 +3,10 @@ from utils.model_loader import ModelLoader
 from prompt.prompt_library import PROMPT_MODEL_REGISTRY
 
 logger = CustomLogger(__name__)
+from pydantic import BaseModel, Field
+from typing import List, Optional, Dict
+
+
 
 
 class DocumentAnalyzer:
