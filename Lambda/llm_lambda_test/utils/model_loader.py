@@ -1,15 +1,19 @@
 import os
 import boto3
 import yaml
-from langchain_aws import ChatBedrock
+import importlib
+import json
 
 class ModelLoader:
     """
-    Loader for AWS Bedrock models with optional S3-based config.
-    Supports a generic config structure with faiss_db, embedding_models, retriever, and llms.
+    Generic Model Loader with AWS Secrets Manager integration.
+    Config (fetched from S3) contains model details + hardcoded secret_name.
     """
+
     def __init__(self):
-        # Load config from S3 if env vars are set, else fallback to local get_config()
+        self.secrets_client = boto3.client("secretsmanager")
+
+        # Load config from S3 if env vars are set, else fallback to local
         config_bucket = os.environ.get("CONFIG_BUCKET")
         config_key = os.environ.get("CONFIG_KEY")
         if config_bucket and config_key:
@@ -20,50 +24,70 @@ class ModelLoader:
             self.config = get_config()
 
     def _load_config_from_s3(self, bucket: str, key: str) -> dict:
-        """
-        Load YAML configuration file from S3.
-        """
         s3 = boto3.client("s3")
         obj = s3.get_object(Bucket=bucket, Key=key)
         yaml_content = obj["Body"].read().decode("utf-8")
         return yaml.safe_load(yaml_content)
 
-    def get_faiss_config(self) -> dict:
-        """
-        Return FAISS DB configuration.
-        """
-        return self.config.get("faiss_db", {})
+    def _dynamic_import(self, import_path: str):
+        module_name, class_name = import_path.rsplit(".", 1)
+        module = importlib.import_module(module_name)
+        return getattr(module, class_name)
 
-    def get_retriever_config(self) -> dict:
+    def _get_secret(self, secret_name: str) -> str:
         """
-        Return retriever configuration.
+        Fetch a secret value from AWS Secrets Manager.
         """
-        return self.config.get("retriever", {})
+        response = self.secrets_client.get_secret_value(SecretId=secret_name)
+        if "SecretString" in response:
+            return response["SecretString"]
+        else:
+            return response["SecretBinary"].decode("utf-8")
 
-    def load_llm(self, **kwargs):
+    def _prepare_model_conf(self, model_conf: dict) -> dict:
         """
-        Load a Bedrock LLM using the 'llms.bedrock' config.
+        Inject secrets into model config if secret_name is provided.
         """
-        llms_config = self.config.get("llms", {})
-        if "bedrock" not in llms_config:
-            raise ValueError("Bedrock LLM configuration not found in config")
+        if "secret_name" in model_conf:
+            secret_value = self._get_secret(model_conf["secret_name"])
 
-        model_conf = dict(llms_config["bedrock"])
+            # If secret is JSON (e.g. {"api_key": "..."}), parse it
+            try:
+                secret_dict = json.loads(secret_value)
+                model_conf.update(secret_dict)
+            except json.JSONDecodeError:
+                model_conf["api_key"] = secret_value
+
+            model_conf.pop("secret_name", None)
+
+        return model_conf
+
+    def load_embedding_model(self, name: str = None, **kwargs):
+        embeddings_config = self.config.get("embedding_models", {})
+        if not embeddings_config:
+            raise ValueError("No embedding models found in config")
+
+        model_key = name or next(iter(embeddings_config))
+        model_conf = dict(embeddings_config[model_key])
         model_conf.update(kwargs)
 
-        # Remove import_path if exists
-        model_conf.pop("import_path", None)
+        import_path = model_conf.pop("import_path")
+        cls = self._dynamic_import(import_path)
 
-        return ChatBedrock(**model_conf)
+        model_conf = self._prepare_model_conf(model_conf)
+        return cls(**model_conf)
 
+    def load_llm(self, name: str = None, **kwargs):
+        llms_config = self.config.get("llms", {})
+        if not llms_config:
+            raise ValueError("No LLMs found in config")
 
-# if __name__ == "__main__":
-#     loader = ModelLoader()
-    
-#     # Example: load Bedrock LLM
-#     llm_model = loader.load_llm(temperature=0.5, max_output_tokens=1024)
-#     print("Bedrock LLM model loaded:", llm_model)
-    
-#     # Example: access FAISS DB and retriever config
-#     print("FAISS config:", loader.get_faiss_config())
-#     print("Retriever config:", loader.get_retriever_config())
+        model_key = name or next(iter(llms_config))
+        model_conf = dict(llms_config[model_key])
+        model_conf.update(kwargs)
+
+        import_path = model_conf.pop("import_path")
+        cls = self._dynamic_import(import_path)
+
+        model_conf = self._prepare_model_conf(model_conf)
+        return cls(**model_conf)

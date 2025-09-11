@@ -238,10 +238,9 @@ resource "aws_iam_policy" "lambda_s3_policy" {
     ]
   })
 }
-
-# -----------------------------
-# Lambda module
-# -----------------------------
+# ===============================
+# LAMBDA MODULE
+# ===============================
 module "llm_lambda" {
   source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/lambda?ref=v0.0.3"
   organization = var.organization
@@ -249,7 +248,6 @@ module "llm_lambda" {
   project      = var.project
   purpose      = "llm_lambda_test"
 
-  # ZIP deployment
   zip_file_path  = data.archive_file.llm_lambda_zip.output_path
   lambda_handler = "lambda_handler.lambda_handler"
   lambda_runtime = "python3.11"
@@ -257,27 +255,105 @@ module "llm_lambda" {
   memory_size = 256
   timeout     = 900
 
-  environment_variables = merge({
+  environment_variables = {
     CONFIG_BUCKET       = module.config_bucket.bucket_id
     CONFIG_KEY          = "config/config.yaml"
-
-    # S3 Bucket for User Documents
     DOCUMENTS_S3_BUCKET = module.config_bucket.bucket_id
     TEMP_DATA_KEY       = "project-data/uploads/temp"
     DOCUMENTS_DATA_KEY  = "project-data/uploads/data"
-
-    # Chat History
     CHAT_HISTORY_TABLE  = aws_dynamodb_table.chat_history.name
-
-    # Document Metadata
     METADATA_TABLE      = aws_dynamodb_table.metadata.name
-  }, {})
+  }
 
-  # Attach policies to Lambda (module handles the attachment)
-    policy_arns = {
-      dynamodb_policy = aws_iam_policy.lambda_dynamodb_policy.arn
-      s3_policy       = aws_iam_policy.lambda_s3_policy.arn
-    }
+  policy_arns = {
+    dynamodb_policy = aws_iam_policy.lambda_dynamodb_policy.arn
+    s3_policy       = aws_iam_policy.lambda_s3_policy.arn
+  }
 
   tags = var.common_tags
+}
+
+# ===============================
+# API GATEWAY MODULE
+# ===============================
+module "api_gateway" {
+  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.3"
+
+  aws_region   = var.aws_region
+  organization = var.organization
+  environment  = var.environment
+  project      = var.project
+  purpose      = "document-portal"
+
+  stage_name = "dev"
+
+  endpoints = [
+    {
+      path                     = "ingest_data"
+      http_method              = "POST"
+      integration_type         = "AWS_PROXY"
+      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+      integration_http_method  = "POST"
+    },
+    {
+      path                     = "doc_compare"
+      http_method              = "POST"
+      integration_type         = "AWS_PROXY"
+      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+      integration_http_method  = "POST"
+    }
+  ]
+
+  common_tags = var.common_tags
+}
+
+resource "aws_lambda_permission" "api_gateway" {
+  statement_id  = "AllowAPIGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = module.llm_lambda.lambda_function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${module.api_gateway.execution_arn}/*/*"
+}
+
+# ===============================
+# AMPLIFY MODULE (with base_directory)
+# ===============================
+module "amplify_ui" {
+  source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.0.4"
+
+  organization  = var.organization
+  environment   = var.environment
+  project       = var.project
+  purpose       = "ui"
+
+  # GitHub connection
+  repo_url     = "https://github.com/<your-org>/<your-repo>.git"
+  branch_name  = "feature/ui"
+  framework    = "Web"
+  stage        = "DEVELOPMENT"
+  github_token = null   # if using Amplify GitHub App
+
+  enable_auto_build = true
+
+  # Deploy only /ui folder
+  base_directory = "ui"
+
+  # Inject backend API URL into frontend
+  environment_variables = {
+    API_URL = module.api_gateway.invoke_url
+  }
+
+  custom_rules = []
+  tags         = var.common_tags
+}
+
+# ===============================
+# OUTPUTS
+# ===============================
+output "api_gateway_url" {
+  value = module.api_gateway.invoke_url
+}
+
+output "amplify_ui_url" {
+  value = module.amplify_ui.amplify_branch_url
 }
