@@ -4,17 +4,20 @@ from typing import List, Dict, Any
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from utils.utils import CustomLogger
-from models.metadata_model import MetadataModel  # Pydantic metadata model
-from services.dynamo_service import DynamoMetadataService  # DynamoDB wrapper
+from utils.metadata import MetadataModel  # Pydantic metadata model
+from utils.dynamodb import DynamoMetadataService  # DynamoDB wrapper
+
 logger = CustomLogger("QdrantVectorDB")
-import os
 
 STORE_TEXT_IN_VECTOR_DB = os.getenv("STORE_TEXT_IN_VECTOR_DB", "true").lower() == "true"
 
 
 class QdrantConfig:
     """Configuration for Qdrant connection"""
-    HOST: str = os.getenv("VECTOR_DB_HOST", "03e01705-fc18-488f-ace1-b2008e0423cf.us-west-2-0.aws.cloud.qdrant.io")
+    HOST: str = os.getenv(
+        "VECTOR_DB_HOST",
+        "03e01705-fc18-488f-ace1-b2008e0423cf.us-west-2-0.aws.cloud.qdrant.io",
+    )
     PORT: int = int(os.getenv("VECTOR_DB_PORT", "6333"))
     API_KEY: str = os.getenv("VECTOR_DB_API_KEY", "")
     COLLECTION: str = os.getenv("COLLECTION_NAME", "Demo")
@@ -39,45 +42,64 @@ class QdrantVectorDB:
         # DynamoDB service for metadata
         self.dynamo_service = DynamoMetadataService()
 
-    def create_collection(self) -> None:
-        """Ensure Qdrant collection exists"""
+    def ensure_collection(self, required_dim: int) -> bool:
+        """
+        Ensure Qdrant collection exists and has the correct vector dimension.
+        If dimensions mismatch, log error instead of auto-recreating.
+        """
         try:
             collections = self.client.get_collections()
-            existing = [col.name for col in collections.collections]
+            existing = {col.name: col for col in collections.collections}
 
             if self.config.COLLECTION not in existing:
                 self.client.create_collection(
                     collection_name=self.config.COLLECTION,
                     vectors_config=VectorParams(
-                        size=self.config.VECTOR_DIM,
+                        size=required_dim,
                         distance=Distance.COSINE,
                     ),
                 )
-                logger.info(f"Created collection: {self.config.COLLECTION}")
+                logger.info(f"✅ Created collection {self.config.COLLECTION} with dim={required_dim}")
+                return True
             else:
-                logger.info(f"Collection already exists: {self.config.COLLECTION}")
+                col_info = self.client.get_collection(self.config.COLLECTION)
+                current_dim = col_info.config.params.vectors.size  # may vary with qdrant-client version
+
+                if current_dim != required_dim:
+                    logger.error(
+                        f"❌ Collection {self.config.COLLECTION} dimension mismatch: "
+                        f"expected={required_dim}, found={current_dim}. "
+                        f"Upsert aborted (safe mode)."
+                    )
+                    return False
+                else:
+                    logger.info(f"ℹ️ Collection {self.config.COLLECTION} already matches dim={required_dim}")
+                    return True
+
         except Exception as e:
-            logger.error(f"Error creating collection: {e}", exc_info=True)
-            raise
+            logger.error(f"❌ Error ensuring collection: {e}", exc_info=True)
+            return False
 
     def upsert_embeddings(self, embeddings: List[Dict[str, Any]]) -> bool:
-        """
-        Store embeddings in Qdrant with metadata attached.
-
-        Args:
-            embeddings: List of dicts with keys:
-                - "embedding" or "vector": list[float]
-                - "metadata": dict
-                - optional "id": str
-        """
+        """Store embeddings in Qdrant with metadata attached."""
         if not embeddings:
             logger.warning("No embeddings provided to upsert.")
             return False
 
         try:
-            self.create_collection()
-            points: List[PointStruct] = []
+            first_vector = embeddings[0].get("embedding") or embeddings[0].get("vector")
+            if not first_vector:
+                logger.error("❌ First embedding has no vector.")
+                return False
 
+            required_dim = len(first_vector)
+            logger.debug(f"Detected embedding dimension={required_dim}")
+
+            if not self.ensure_collection(required_dim):
+                logger.error("Aborting upsert due to collection dimension mismatch.")
+                return False
+
+            points: List[PointStruct] = []
             for item in embeddings:
                 vector = item.get("embedding") or item.get("vector")
                 metadata_dict = item.get("metadata")
@@ -90,8 +112,7 @@ class QdrantVectorDB:
                     continue
 
                 point_id = item.get("id", str(uuid.uuid4()))
-                
-                # Select relevant metadata
+
                 vector_payload = {
                     "project_name": metadata_dict.get("project_name"),
                     "user_id": metadata_dict.get("user_id"),
@@ -100,12 +121,10 @@ class QdrantVectorDB:
                     "chunk_id": metadata_dict.get("chunk_id"),
                     "filename": metadata_dict.get("filename"),
                     "file_type": metadata_dict.get("file_type"),
-                    "embedding_model": metadata_dict.get("embedding_model"),  
+                    "embedding_model": metadata_dict.get("embedding_model"),
                     "tags": metadata_dict.get("tags"),
-                    "text": item.get("text"),
                 }
 
-                # Conditionally include text
                 if STORE_TEXT_IN_VECTOR_DB and item.get("text"):
                     vector_payload["text"] = item["text"]
 
@@ -117,7 +136,6 @@ class QdrantVectorDB:
                     )
                 )
 
-
             if not points:
                 logger.error("No valid embeddings to upsert.")
                 return False
@@ -126,35 +144,26 @@ class QdrantVectorDB:
                 collection_name=self.config.COLLECTION,
                 points=points,
             )
-            logger.info(f"Upserted {len(points)} embeddings into Qdrant.")
+            logger.info(f"✅ Upserted {len(points)} embeddings into Qdrant.")
             return True
 
         except Exception as e:
-            logger.error(f"Error upserting embeddings: {e}", exc_info=True)
+            logger.error(f"❌ Error upserting embeddings: {e}", exc_info=True)
             return False
 
     def search(self, query_vector: List[float], top_k: int = 5) -> List[Dict[str, Any]]:
-        """
-        Search Qdrant for nearest neighbors.
-
-        Args:
-            query_vector: List[float] query embedding
-            top_k: number of results to return
-
-        Returns:
-            List of dicts with {id, score, metadata}
-        """
+        """Search Qdrant for nearest neighbors."""
         try:
-            self.create_collection()
+            if not self.ensure_collection(len(query_vector)):
+                logger.error("Search aborted due to collection dimension mismatch.")
+                return []
+
             results = self.client.search(
                 collection_name=self.config.COLLECTION,
                 query_vector=query_vector,
                 limit=top_k,
             )
-            formatted = [
-                {"id": r.id, "score": r.score, "metadata": r.payload}
-                for r in results
-            ]
+            formatted = [{"id": r.id, "score": r.score, "metadata": r.payload} for r in results]
             logger.info(f"Search returned {len(formatted)} results.")
             return formatted
         except Exception as e:

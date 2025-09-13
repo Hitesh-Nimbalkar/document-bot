@@ -1,5 +1,4 @@
 
-from models.models import ChatHistoryModel
 import boto3
 import os
 import uuid

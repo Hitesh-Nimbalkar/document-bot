@@ -36,7 +36,7 @@ class MetadataModel(BaseModel):
     file_size: int
 
     # Processing
-    embedding_model: str  # ✅ now required
+    embedding_model: str  # ✅ required
     ingest_source: Optional[str] = None
     source_path: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -69,10 +69,13 @@ def build_metadata(
     """
     Build metadata object for DynamoDB + Vector DB.
     """
+    logger.debug(f"⚙️ Building metadata for s3_key={s3_key}, project={project_name}, user={user_id}")
+
     if not embedding_model:
+        logger.error("❌ embedding_model missing in build_metadata")
         raise CustomException("Missing embedding_model in build_metadata")
 
-    return MetadataModel(
+    metadata_obj = MetadataModel(
         document_id=str(uuid.uuid4()),
         chunk_id=chunk_id,
         project_name=project_name,
@@ -91,6 +94,10 @@ def build_metadata(
         status="uploaded",
     )
 
+    logger.info(f"✅ Metadata built successfully for {s3_key}")
+    logger.debug(f"Metadata object: {metadata_obj.dict()}")
+    return metadata_obj
+
 
 # ---------------------------
 # Duplicate Check
@@ -105,6 +112,8 @@ def check_metadata_exists(
     Uses GSI on content_hash (to avoid costly scans).
     Returns: (any_exists, exact_exists)
     """
+    logger.debug(f"🔍 Checking duplicates in table={ddb_table} for hash={content_hash}")
+
     table = dynamodb.Table(ddb_table)
 
     try:
@@ -113,6 +122,8 @@ def check_metadata_exists(
             KeyConditionExpression=Key("content_hash").eq(content_hash),
         )
         items = response.get("Items", [])
+        logger.debug(f"Query returned {len(items)} items for content_hash={content_hash}")
+
         any_exists = bool(items)
 
         exact_exists = False
@@ -120,12 +131,15 @@ def check_metadata_exists(
             exact_exists = any(
                 item.get("embedding_model") == embedding_model for item in items
             )
+            logger.debug(f"Checked for exact embedding_model={embedding_model}: {exact_exists}")
 
-        logger.info(f"Duplicate check: any={any_exists}, exact={exact_exists}")
+        logger.info(
+            f"Duplicate check result → any_exists={any_exists}, exact_exists={exact_exists}"
+        )
         return any_exists, exact_exists
 
     except Exception as e:
-        logger.error(f"Error checking metadata: {str(e)}")
+        logger.error(f"❌ Error querying DynamoDB for content_hash={content_hash}: {str(e)}", exc_info=True)
         raise CustomException(f"Error checking metadata: {str(e)}")
 
 
@@ -140,16 +154,21 @@ def create_and_check_metadata(
     session_id: Optional[str] = None,
     ingest_source: Optional[str] = None,
     source_path: Optional[str] = None,
-    embedding_model: str = None,   # ✅ now required
+    embedding_model: Optional[str] = None,
     filename: Optional[str] = None,
     file_type: Optional[str] = None,
     file_size: Optional[int] = None,
     ddb_table: str = None,
-):
+) -> Tuple[dict, dict]:
     """
     Build metadata, check duplicates, return both.
+    Returns:
+        metadata (dict), exists ({"any_exists": bool, "exact_exists": bool})
     """
+    logger.info(f"🚀 Creating + checking metadata for file={filename or s3_key}")
+
     if not embedding_model:
+        logger.error("❌ embedding_model missing in create_and_check_metadata")
         raise CustomException("Missing embedding_model in create_and_check_metadata")
 
     metadata_obj = build_metadata(
@@ -166,12 +185,14 @@ def create_and_check_metadata(
         file_size,
     )
     metadata = metadata_obj.dict()
+    metadata["content_hash"] = content_hash  # Keep top-level for GSI
 
-    # Keep content_hash top-level for GSI
-    metadata["content_hash"] = content_hash
+    logger.debug(f"📦 Metadata prepared → {metadata}")
 
     any_exists, exact_exists = check_metadata_exists(
         content_hash, ddb_table, embedding_model
     )
+    exists = {"any_exists": any_exists, "exact_exists": exact_exists}
 
-    return metadata, (any_exists, exact_exists)
+    logger.info(f"✅ Final metadata ready (exists={exists}) for file={filename or s3_key}")
+    return metadata, exists

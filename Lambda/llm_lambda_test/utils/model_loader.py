@@ -87,7 +87,7 @@ class ModelLoader:
             bedrock = boto3.client(service_name="bedrock-runtime")
             
             class BedrockEmbeddingWrapper:
-                def __init__(self, client, model_id="amazon.titan-embed-text-v1", **kwargs):
+                def __init__(self, client, model_id="amazon.titan-embed-text-v2:0", **kwargs):
                     self.client = client
                     self.model_id = model_id
 

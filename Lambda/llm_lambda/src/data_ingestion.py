@@ -6,9 +6,9 @@ import json
 from botocore.exceptions import ClientError
 from datetime import datetime
 import tempfile
-from utils.metadata import create_and_check_metadata
+from utils
 from ..utils.utils import CustomLogger, CustomException
-from models.models import IngestionResponse
+#from models.models import IngestionResponse
 logger = CustomLogger(__name__)
 dynamodb = boto3.resource('dynamodb')
 s3 = boto3.client('s3')
@@ -28,7 +28,7 @@ def move_file_s3_temp_to_documents(s3_bucket: str, temp_key: str, documents_key:
     except ClientError as e:
         logger.error(f"Error moving file in S3: {str(e)}")
         raise CustomException(f"Error moving file in S3: {str(e)}")
-from vector_db.vector_db import PDFIngestionPipeline
+
 
 def compute_content_hash(file_bytes: bytes) -> str:
     """Compute SHA-256 hash of file bytes."""
@@ -96,9 +96,21 @@ def ingest_document(payload):
         ingest_source = payload.get('ingest_source') or 'user_upload'
         source_path = payload.get('source_path') or 'UI'
         embedding_model = payload.get('embedding_model') or 'unknown-embedding-model'
-        metadata, exists = create_and_check_metadata(
-            s3_key, project_name, user_id, content_hash, session_id, ingest_source, source_path, embedding_model
+        metadata, (any_exists, exact_exists) = create_and_check_metadata(
+            temp_s3_key, project_name, user_id, content_hash,
+            session_id, ingest_source, source_path, embedding_model,
+            ddb_table=METADATA_TABLE,
+            content_hash_key="content_hash"
         )
+
+        if any_exists:
+            logger.warning(f"Duplicate detected for {doc_loc}")
+            return IngestionResponse(
+                statusCode=409,
+                body=f"Duplicate data already exists: {doc_loc}",
+                s3_bucket=s3_bucket,
+                s3_key=doc_s3_key
+            )
     except Exception as e:
         logger.error(f"Error querying DynamoDB: {str(e)}")
         return IngestionResponse(statusCode=500, body=f'Error querying DynamoDB: {str(e)}')

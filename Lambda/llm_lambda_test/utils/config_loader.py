@@ -23,9 +23,4 @@ def get_config():
         except Exception as e:
             print(f"Error loading config from S3: {e}")
             raise
-    else:
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        config_path = os.path.join(base_dir, 'config', 'config.yaml')
-        with open(config_path, 'r') as f:
-            _CONFIG_CACHE = yaml.safe_load(f)
     return _CONFIG_CACHE

@@ -1,10 +1,20 @@
-pydantic==1.10.11
-fastapi
-uvicorn
-boto3
+# AWS SDK
+boto3>=1.28.0
+botocore>=1.31.0
 
+# Config & Models
+pydantic>=1.10.0
+PyYAML>=6.0
 
-# Document parsing
-PyPDF2
-python-docx
-textract==1.6.3
+# Vector Database
+qdrant-client>=1.6.0
+
+# Document Processing
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+
+# Logging
+structlog>=23.1.0
+
+langchain>=0.1.12
+textract

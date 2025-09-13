@@ -1,52 +1,52 @@
 import logging
-import structlog
 import sys
 import traceback
-from typing import Optional, cast
+import inspect
+from typing import Optional
 
 # -----------------------------
-# Lambda-safe Custom Logger
+# Custom Logger
 # -----------------------------
 class CustomLogger:
-    def __init__(self, name: str = __file__):
-        self.logger_name = name
+    def __init__(self, name: str):
+        self.logger = logging.getLogger(name)
 
-        # Console handler for CloudWatch
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(logging.Formatter("%(message)s"))
+        if not self.logger.handlers:
+            handler = logging.StreamHandler(sys.stdout)
+            formatter = logging.Formatter(
+                fmt="%(asctime)s [%(levelname)s] %(name)s "
+                    "(%(filename)s:%(lineno)d - %(funcName)s): %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+            handler.setFormatter(formatter)
+            self.logger.addHandler(handler)
 
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(message)s",
-            handlers=[console_handler]
-        )
+        self.logger.setLevel(logging.DEBUG)
 
-        # Structlog JSON configuration
-        structlog.configure(
-            processors=[
-                structlog.processors.TimeStamper(fmt="iso", utc=True, key="timestamp"),
-                structlog.processors.add_log_level,
-                structlog.processors.EventRenamer(to="event"),
-                structlog.processors.JSONRenderer()
-            ],
-            logger_factory=structlog.stdlib.LoggerFactory(),
-            cache_logger_on_first_use=True,
-        )
+    def _inject_classname(self, msg: str) -> str:
+        """
+        Detect class name if log call was made inside a class method.
+        """
+        frame = inspect.currentframe().f_back.f_back
+        cls = None
+        if "self" in frame.f_locals:
+            cls = frame.f_locals["self"].__class__.__name__
+        return f"[{cls}] {msg}" if cls else msg
 
-        self.logger = structlog.get_logger(self.logger_name)
+    def debug(self, msg, *args, **kwargs):
+        self.logger.debug(self._inject_classname(msg), *args, **kwargs)
 
-    def info(self, msg: str):
-        self.logger.info(msg)
+    def info(self, msg, *args, **kwargs):
+        self.logger.info(self._inject_classname(msg), *args, **kwargs)
 
-    def warning(self, msg: str):
-        self.logger.warning(msg)
+    def warning(self, msg, *args, **kwargs):
+        self.logger.warning(self._inject_classname(msg), *args, **kwargs)
 
-    def error(self, msg: str):
-        self.logger.error(msg)
+    def error(self, msg, *args, exc_info=False, **kwargs):
+        self.logger.error(self._inject_classname(msg), *args, exc_info=exc_info, **kwargs)
 
-    def debug(self, msg: str):
-        self.logger.debug(msg)
+    def critical(self, msg, *args, exc_info=False, **kwargs):
+        self.logger.critical(self._inject_classname(msg), *args, exc_info=exc_info, **kwargs)
 
 
 # -----------------------------
@@ -54,10 +54,8 @@ class CustomLogger:
 # -----------------------------
 class CustomException(Exception):
     def __init__(self, message: str, error_details: Optional[object] = None):
-        # Normalize message
         norm_msg = str(message) if not isinstance(message, BaseException) else str(message)
 
-        # Capture traceback
         exc_type = exc_value = exc_tb = None
         if error_details is None:
             exc_type, exc_value, exc_tb = sys.exc_info()
@@ -66,22 +64,25 @@ class CustomException(Exception):
         else:
             exc_type, exc_value, exc_tb = sys.exc_info()
 
-        # Get last frame info
+        # Traverse traceback to last frame
         last_tb = exc_tb
         while last_tb and last_tb.tb_next:
             last_tb = last_tb.tb_next
 
         self.file_name = last_tb.tb_frame.f_code.co_filename if last_tb else "<unknown>"
+        self.func_name = last_tb.tb_frame.f_code.co_name if last_tb else "<unknown>"
         self.lineno = last_tb.tb_lineno if last_tb else -1
         self.message = norm_msg
 
         # Full traceback string
-        self.traceback_str = ''.join(traceback.format_exception(exc_type, exc_value, exc_tb)) if exc_type and exc_tb else ""
+        self.traceback_str = ''.join(
+            traceback.format_exception(exc_type, exc_value, exc_tb)
+        ) if exc_type and exc_tb else ""
 
         super().__init__(self.__str__())
 
     def __str__(self):
-        base = f"Error in [{self.file_name}] at line [{self.lineno}] | Message: {self.message}"
+        base = f"Error in [{self.file_name}:{self.lineno} - {self.func_name}] | Message: {self.message}"
         return f"{base}\nTraceback:\n{self.traceback_str}" if self.traceback_str else base
 
     def __repr__(self):

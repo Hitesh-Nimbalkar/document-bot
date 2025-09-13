@@ -65,11 +65,28 @@ module "config_bucket" {
 resource "aws_dynamodb_table" "metadata" {
   name         = "document-metadata"
   billing_mode = "PAY_PER_REQUEST"
-  hash_key     = "content_hash"
+
+  # Primary key = document_id (unique per file)
+  hash_key     = "document_id"
+
+  attribute {
+    name = "document_id"
+    type = "S"
+  }
+
+  # Attribute for content_hash (used in GSI)
   attribute {
     name = "content_hash"
     type = "S"
   }
+
+  # Global Secondary Index for content_hash lookups
+  global_secondary_index {
+    name            = "content_hash-index"
+    hash_key        = "content_hash"
+    projection_type = "ALL"
+  }
+
   tags = var.common_tags
 }
 # ============================================================================
@@ -166,18 +183,18 @@ resource "aws_s3_object" "config_file" {
   depends_on = [module.config_bucket]         # ensures bucket is created first
 }
 
-# Lambda Layer version
-resource "aws_lambda_layer_version" "llm_lambda_layer" {
-  layer_name  = "llm_lambda_layer"
-  description = "Layer for llm_lambda_test with dependencies"
+# # Lambda Layer version
+# resource "aws_lambda_layer_version" "llm_lambda_layer" {
+#   layer_name  = "llm_lambda_layer"
+#   description = "Layer for llm_lambda_test with dependencies"
 
-  # Use the bucket created by your module
-  s3_bucket = module.layers_bucket.bucket_id
-  s3_key    = "Lambda-layers/llm_lambda_test/layer-<timestamp>.zip" # update after CI/CD build
+#   # Use the bucket created by your module
+#   s3_bucket = module.layers_bucket.bucket_id
+#   s3_key    = "Lambda-layers/llm_lambda_test/layer-<timestamp>.zip" # update after CI/CD build
 
-  compatible_runtimes = ["python3.11"]
-  license_info        = "MIT"
-}
+#   compatible_runtimes = ["python3.11"]
+#   license_info        = "MIT"
+# }
 
 
 # Zip the Lambda code
@@ -238,6 +255,23 @@ resource "aws_iam_policy" "lambda_s3_policy" {
     ]
   })
 }
+
+resource "aws_iam_user_policy" "allow_assume_lambda_role" {
+  name = "allow-assume-lambda-role"
+  user = "HiteshNimbalkar"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "sts:AssumeRole"
+        Resource = "arn:aws:iam::454842419567:role/org-dev-chatbot-document-v2-lambda-llm_lambda_test-role"
+      }
+    ]
+  })
+}
+
 # ===============================
 # LAMBDA MODULE
 # ===============================
@@ -282,47 +316,49 @@ module "llm_lambda" {
   tags = var.common_tags
 }
 
+
+
 # ===============================
 # API GATEWAY MODULE
 # ===============================
-module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.5"
+# module "api_gateway" {
+#   source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.5"
 
-  aws_region   = local.account_region
-  organization = var.organization
-  environment  = var.environment
-  project      = var.project
-  purpose      = "document-portal"
+#   aws_region   = local.account_region
+#   organization = var.organization
+#   environment  = var.environment
+#   project      = var.project
+#   purpose      = "document-portal"
 
-  stage_name = "dev"
+#   stage_name = "dev"
 
-  endpoints = [
-    {
-      path                     = "ingest_data"
-      http_method              = "POST"
-      integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
-      integration_http_method  = "POST"
-    },
-    {
-      path                     = "doc_compare"
-      http_method              = "POST"
-      integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
-      integration_http_method  = "POST"
-    }
-  ]
+#   endpoints = [
+#     {
+#       path                     = "ingest_data"
+#       http_method              = "POST"
+#       integration_type         = "AWS_PROXY"
+#       integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+#       integration_http_method  = "POST"
+#     },
+#     {
+#       path                     = "doc_compare"
+#       http_method              = "POST"
+#       integration_type         = "AWS_PROXY"
+#       integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+#       integration_http_method  = "POST"
+#     }
+#   ]
 
-  common_tags = var.common_tags
-}
+#   common_tags = var.common_tags
+# }
 
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = module.llm_lambda.lambda_function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
-}
+# resource "aws_lambda_permission" "api_gateway" {
+#   statement_id  = "AllowAPIGatewayInvoke"
+#   action        = "lambda:InvokeFunction"
+#   function_name = module.llm_lambda.lambda_function_name
+#   principal     = "apigateway.amazonaws.com"
+#   source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
+# }
 
 # # ===============================
 # # AMPLIFY MODULE (with base_directory)
@@ -418,3 +454,18 @@ resource "aws_lambda_permission" "api_gateway" {
 # output "ui_bucket_url" {
 #   value = module.ui_bucket.bucket_domain_name
 # }
+
+
+#{
+#  "Version": "2012-10-17",
+#  "Statement": [
+#    {
+#      "Effect": "Allow",
+#      "Action": [
+#        "bedrock:InvokeModel",
+#        "bedrock:InvokeModelWithResponseStream"
+#      ],
+#      "Resource": "arn:aws:bedrock:ap-south-1::foundation-model/amazon.titan-embed-text-v2:0"
+#    }
+#  ]
+#}

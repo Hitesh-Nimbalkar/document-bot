@@ -5,10 +5,10 @@ from pydantic import ValidationError
 
 from utils.config_loader import get_config
 from chat_history.chat_history import log_chat_history
-from models.models import IngestionPayload, IngestionResponse, DocumentComparisonInput
+#from models.models import IngestionPayload, IngestionResponse, DocumentComparisonInput
 from src.data_ingestion import ingest_document
 from src.data_analysis import DocumentAnalyzer
-from src.document_comparator import DocumentComparator
+#from src.document_comparator import DocumentComparator
 from utils.document_type_utils import detect_document_type, extract_text_from_document
 from rag.rag_pipeline import RAGPipeline  # ✅ RAG pipeline
 from utils.logger import CustomLogger , CustomException
@@ -83,28 +83,28 @@ def handle_ingest_route(event, payload):
         logger.error(f"Error in handle_ingest_route: {e}")
         return {"statusCode": 500, "body": f"Error in ingestion: {str(e)}"}
 
-def handle_doc_compare_route(event, payload):
-    """Handles the /doc_compare route"""
-    if "document_1" not in payload or "document_2" not in payload:
-        return {"statusCode": 400, "body": "Both 'document_1' and 'document_2' must be provided."}
+# def handle_doc_compare_route(event, payload):
+#     """Handles the /doc_compare route"""
+#     if "document_1" not in payload or "document_2" not in payload:
+#         return {"statusCode": 400, "body": "Both 'document_1' and 'document_2' must be provided."}
 
-    session_id = payload.get("session_id") or event.get("session_id")
+#     session_id = payload.get("session_id") or event.get("session_id")
 
-    try:
-        comparator = DocumentComparator()
-        comparison_input = DocumentComparisonInput(
-            document_1=payload["document_1"], document_2=payload["document_2"]
-        )
-        comparison_result = comparator.compare_documents(comparison_input)
-    except Exception as e:
-        return {"statusCode": 500, "body": f"Error during document comparison: {str(e)}"}
+#     try:
+#         comparator = DocumentComparator()
+#         comparison_input = DocumentComparisonInput(
+#             document_1=payload["document_1"], document_2=payload["document_2"]
+#         )
+#         comparison_result = comparator.compare_documents(comparison_input)
+#     except Exception as e:
+#         return {"statusCode": 500, "body": f"Error during document comparison: {str(e)}"}
 
-    user_message_id = payload.get("message_id") or "user_" + str(session_id)
-    log_chat_history(event, payload, "user", "Requesting document comparison", {"comparison_performed": True})
-    log_chat_history(event, payload, "assistant", f"Document comparison result: {comparison_result}",
-                     reply_to=user_message_id, metadata={"comparison_performed": True})
+#     user_message_id = payload.get("message_id") or "user_" + str(session_id)
+#     log_chat_history(event, payload, "user", "Requesting document comparison", {"comparison_performed": True})
+#     log_chat_history(event, payload, "assistant", f"Document comparison result: {comparison_result}",
+#                      reply_to=user_message_id, metadata={"comparison_performed": True})
 
-    return {"statusCode": 200, "body": json.dumps(comparison_result)}
+#     return {"statusCode": 200, "body": json.dumps(comparison_result)}
 
 def handle_rag_query(event, payload):
     """Handles the /rag_query route: retrieval + generation with dynamic prompt_type"""
@@ -148,8 +148,8 @@ def lambda_handler(event, context):
             return handle_get_presigned_url(event, payload)
         elif route == "/ingest_data":
             return handle_ingest_route(event, payload)
-        elif route == "/doc_compare":
-            return handle_doc_compare_route(event, payload)
+        # elif route == "/doc_compare":
+        #     return handle_doc_compare_route(event, payload)
         elif route == "/rag_query":
             return handle_rag_query(event, payload)
         else:
