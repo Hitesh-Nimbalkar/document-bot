@@ -62,20 +62,49 @@ class ModelLoader:
 
         return model_conf
 
+    # def load_embedding_model(self, name: str = None, **kwargs):
+    #     embeddings_config = self.config.get("embedding_models", {})
+    #     if not embeddings_config:
+    #         raise ValueError("No embedding models found in config")
+
+    #     model_key = name or next(iter(embeddings_config))
+    #     model_conf = dict(embeddings_config[model_key])
+    #     model_conf.update(kwargs)
+
+    #     import_path = model_conf.pop("import_path")
+    #     cls = self._dynamic_import(import_path)
+
+    #     model_conf = self._prepare_model_conf(model_conf)
+    #     return cls(**model_conf)
+
     def load_embedding_model(self, name: str = None, **kwargs):
-        embeddings_config = self.config.get("embedding_models", {})
-        if not embeddings_config:
-            raise ValueError("No embedding models found in config")
+        """
+        For now: always return a Bedrock embedding model client.
+        Keeps structure the same so rest of pipeline works unchanged.
+        """
+        try:
+            import boto3
+            bedrock = boto3.client(service_name="bedrock-runtime")
+            
+            class BedrockEmbeddingWrapper:
+                def __init__(self, client, model_id="amazon.titan-embed-text-v1", **kwargs):
+                    self.client = client
+                    self.model_id = model_id
 
-        model_key = name or next(iter(embeddings_config))
-        model_conf = dict(embeddings_config[model_key])
-        model_conf.update(kwargs)
+                def embed(self, text: str) -> list[float]:
+                    response = self.client.invoke_model(
+                        modelId=self.model_id,
+                        body=json.dumps({"inputText": text})
+                    )
+                    result = json.loads(response["body"].read())
+                    return result["embedding"]  # adjust if Bedrock response differs
 
-        import_path = model_conf.pop("import_path")
-        cls = self._dynamic_import(import_path)
+            # ✅ Always return Bedrock wrapper (ignoring config.yaml for embeddings)
+            return BedrockEmbeddingWrapper(bedrock, **kwargs)
 
-        model_conf = self._prepare_model_conf(model_conf)
-        return cls(**model_conf)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load Bedrock embedding model: {e}")
+
 
     def load_llm(self, name: str = None, **kwargs):
         llms_config = self.config.get("llms", {})

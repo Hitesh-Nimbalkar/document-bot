@@ -263,6 +263,15 @@ module "llm_lambda" {
     DOCUMENTS_DATA_KEY  = "project-data/uploads/data"
     CHAT_HISTORY_TABLE  = aws_dynamodb_table.chat_history.name
     METADATA_TABLE      = aws_dynamodb_table.metadata.name
+
+    # ===========================
+    # Qdrant Vector DB Settings
+    # ===========================
+    VECTOR_DB_HOST      = "03e01705-fc18-488f-ace1-b2008e0423cf.us-west-2-0.aws.cloud.qdrant.io"
+    VECTOR_DB_PORT      = "443"                 
+    VECTOR_DB_API_KEY   = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIiwiZXhwIjoxNzU4NjIxMTM0fQ.DfCJhyMg6LDg9coNpvwJBCXaR7VU2jBGJnK2SssyCHk"
+    COLLECTION_NAME     = "Demo"
+    VECTOR_DIMENSION    = "1536"
   }
 
   policy_arns = {
@@ -277,9 +286,9 @@ module "llm_lambda" {
 # API GATEWAY MODULE
 # ===============================
 module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.3"
+  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.5"
 
-  aws_region   = var.aws_region
+  aws_region   = local.account_region
   organization = var.organization
   environment  = var.environment
   project      = var.project
@@ -312,48 +321,100 @@ resource "aws_lambda_permission" "api_gateway" {
   action        = "lambda:InvokeFunction"
   function_name = module.llm_lambda.lambda_function_name
   principal     = "apigateway.amazonaws.com"
-  source_arn    = "${module.api_gateway.execution_arn}/*/*"
+  source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
 }
 
+# # ===============================
+# # AMPLIFY MODULE (with base_directory)
+# # ===============================
+# module "amplify_ui" {
+#   source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.0.4"
+
+#   organization  = var.organization
+#   environment   = var.environment
+#   project       = var.project
+#   purpose       = "ui"
+
+#   # GitHub connection
+#   repo_url     = "https://github.com/<your-org>/<your-repo>.git"
+#   branch_name  = "feature/ui"
+#   framework    = "Web"
+#   stage        = "DEVELOPMENT"
+#   github_token = null   # if using Amplify GitHub App
+
+#   enable_auto_build = true
+
+#   # Deploy only /ui folder
+#   base_directory = "ui"
+
+#   # Inject backend API URL into frontend
+#   environment_variables = {
+#     API_URL = module.api_gateway.invoke_url
+#   }
+
+#   custom_rules = []
+#   tags         = var.common_tags
+# }
+
+# # ===============================
+# # OUTPUTS
+# # ===============================
+# output "api_gateway_url" {
+#   value = module.api_gateway.invoke_url
+# }
+
+# output "amplify_ui_url" {
+#   value = module.amplify_ui.amplify_branch_url
+# }
 # ===============================
-# AMPLIFY MODULE (with base_directory)
+# UI BUCKET (Static Website Hosting)
 # ===============================
-module "amplify_ui" {
-  source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.0.4"
+# module "ui_bucket" {
+#   source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/s3?ref=v0.0.1"
+#   organization  = var.organization
+#   project       = var.project
+#   environment   = var.environment
+#   purpose       = "ui"
+#   force_destroy = true
+#   common_tags   = var.common_tags
+# }
 
-  organization  = var.organization
-  environment   = var.environment
-  project       = var.project
-  purpose       = "ui"
+# # Make the UI bucket publicly readable
+# resource "aws_s3_bucket_policy" "ui_bucket_policy" {
+#   bucket = module.ui_bucket.bucket_id
 
-  # GitHub connection
-  repo_url     = "https://github.com/<your-org>/<your-repo>.git"
-  branch_name  = "feature/ui"
-  framework    = "Web"
-  stage        = "DEVELOPMENT"
-  github_token = null   # if using Amplify GitHub App
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect    = "Allow"
+#         Principal = "*"
+#         Action    = "s3:GetObject"
+#         Resource  = "${module.ui_bucket.bucket_arn}/*"
+#       }
+#     ]
+#   })
+# }
 
-  enable_auto_build = true
+# resource "aws_s3_bucket_website_configuration" "ui_site" {
+#   bucket = module.ui_bucket.bucket_id
 
-  # Deploy only /ui folder
-  base_directory = "ui"
+#   index_document {
+#     suffix = "index.html"
+#   }
 
-  # Inject backend API URL into frontend
-  environment_variables = {
-    API_URL = module.api_gateway.invoke_url
-  }
+#   error_document {
+#     key = "index.html"
+#   }
+# }
 
-  custom_rules = []
-  tags         = var.common_tags
-}
+# # ===============================
+# # OUTPUTS
+# # ===============================
+# output "ui_bucket_name" {
+#   value = module.ui_bucket.bucket_id
+# }
 
-# ===============================
-# OUTPUTS
-# ===============================
-output "api_gateway_url" {
-  value = module.api_gateway.invoke_url
-}
-
-output "amplify_ui_url" {
-  value = module.amplify_ui.amplify_branch_url
-}
+# output "ui_bucket_url" {
+#   value = module.ui_bucket.bucket_domain_name
+# }

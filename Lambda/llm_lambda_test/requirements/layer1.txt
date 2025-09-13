@@ -1,6 +1,6 @@
 boto3
 structlog
-pyyaml
+PyYAML
 fastapi
 uvicorn
 pydantic==1.10.11
