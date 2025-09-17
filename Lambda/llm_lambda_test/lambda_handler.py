@@ -34,6 +34,22 @@ MAX_FILE_SIZE_MB = 25   # optional limit
 
 
 # =====================================================
+# RESPONSE HELPER (adds CORS automatically)
+# =====================================================
+
+def make_response(status_code, body):
+    return {
+        "statusCode": status_code,
+        "headers": {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "OPTIONS,POST,GET",
+            "Access-Control-Allow-Headers": "Content-Type"
+        },
+        "body": body if isinstance(body, str) else json.dumps(body)
+    }
+
+
+# =====================================================
 # ROUTE HANDLERS
 # =====================================================
 
@@ -49,19 +65,19 @@ def handle_get_presigned_url(event, payload):
     file_size = payload.get("file_size", 0)
 
     if not project_name or not filename:
-        return {"statusCode": 400, "body": "Missing project_name or filename"}
+        return make_response(400, "Missing project_name or filename")
 
     # Validate extension
     if not filename.lower().endswith(ALLOWED_EXTENSIONS):
         msg = f"Unsupported file type: {filename}"
         logger.warning(f"⚠️ {msg}")
-        return {"statusCode": 415, "body": msg}
+        return make_response(415, msg)
 
     # Validate file size
     if file_size and file_size > MAX_FILE_SIZE_MB * 1024 * 1024:
         msg = f"File too large (max {MAX_FILE_SIZE_MB}MB): {filename}"
         logger.warning(f"⚠️ {msg}")
-        return {"statusCode": 413, "body": msg}
+        return make_response(413, msg)
 
     # Generate unique key
     safe_name = filename.split("/")[-1].replace(" ", "_")
@@ -75,10 +91,10 @@ def handle_get_presigned_url(event, payload):
             ExpiresIn=600  # 10 min expiry
         )
         logger.info(f"✅ Generated presigned URL for {filename} → key={s3_key}")
-        return {"statusCode": 200, "body": json.dumps({"url": url, "doc_loc": file_key})}
+        return make_response(200, {"url": url, "doc_loc": file_key})
     except ClientError as e:
         logger.error(f"💥 Error creating presigned URL: {e}", exc_info=True)
-        return {"statusCode": 500, "body": f"Error creating presigned URL: {str(e)}"}
+        return make_response(500, f"Error creating presigned URL: {str(e)}")
 
 
 def handle_ingest_route(event, payload):
@@ -95,13 +111,13 @@ def handle_ingest_route(event, payload):
                 "results": [r.dict() for r in ingest_result.results]
             }
             logger.info(f"✅ Ingestion complete → {body['summary']}")
-            return {"statusCode": 200, "body": json.dumps(body)}
+            return make_response(200, body)
         else:
             logger.info(f"✅ Single ingestion complete → status={ingest_result.statusCode}")
-            return {"statusCode": ingest_result.statusCode, "body": json.dumps(ingest_result.dict())}
+            return make_response(ingest_result.statusCode, ingest_result.dict())
     except Exception as e:
         logger.error(f"💥 Error in handle_ingest_route: {e}", exc_info=True)
-        return {"statusCode": 500, "body": f"Error in ingestion: {str(e)}"}
+        return make_response(500, f"Error in ingestion: {str(e)}")
 
 
 # def handle_doc_compare_route(event, payload):
@@ -136,7 +152,7 @@ def handle_rag_query(event, payload):
     """
     query = payload.get("query")
     if not query:
-        return {"statusCode": 400, "body": "Missing query text"}
+        return make_response(400, "Missing query text")
 
     prompt_type = payload.get("prompt_type", "rag_query")
 
@@ -154,10 +170,10 @@ def handle_rag_query(event, payload):
         )
 
         logger.info(f"✅ RAG query handled (type={prompt_type})")
-        return {"statusCode": 200, "body": json.dumps(result)}
+        return make_response(200, result)
     except Exception as e:
         logger.error(f"💥 RAG query failed: {e}", exc_info=True)
-        return {"statusCode": 500, "body": f"RAG query failed: {str(e)}"}
+        return make_response(500, f"RAG query failed: {str(e)}")
 
 
 # =====================================================
@@ -167,20 +183,6 @@ def handle_rag_query(event, payload):
 def lambda_handler(event, context):
     """
     Main Lambda entrypoint.
-
-    Expected event structure:
-    {
-        "route": "/ingest_data",
-        "payload": {
-            "session_id": "sess_123",
-            "project_name": "demo_project",
-            "user_id": "user_1",
-            "doc_locs": ["sample.pdf"],
-            "ingest_source": "ui",
-            "source_path": "browser_upload",
-            "embedding_model": "bedrock_default"
-        }
-    }
     """
     try:
         route = event.get("route")
@@ -198,7 +200,7 @@ def lambda_handler(event, context):
             return handle_rag_query(event, payload)
         else:
             logger.warning(f"❌ Unknown route → {route}")
-            return {"statusCode": 404, "body": f"Route '{route}' not found."}
+            return make_response(404, f"Route '{route}' not found.")
     except Exception as e:
         logger.error(f"💥 Error in lambda_handler: {e}", exc_info=True)
-        return {"statusCode": 500, "body": f"Error in lambda_handler: {str(e)}"}
+        return make_response(500, f"Error in lambda_handler: {str(e)}")
