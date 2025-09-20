@@ -140,7 +140,7 @@ class PDFIngestionPipeline:
 
                 except Exception as e:
                     logger.error(f"❌ Failed embedding chunk {idx}: {e}")
-                    return False
+                    return False , emb_meta
 
             # 4. Upsert into Qdrant
             success = self.vector_db.upsert_embeddings(embeddings_to_upsert)
@@ -353,7 +353,7 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
             else:
                 logger.info(f"ℹ️ Metadata not saved (duplicate or error)")
             logger.info(f"⚙️ Running embedding pipeline for {doc_loc}")
-            ok = pipeline.process_and_store(file_bytes, metadata)
+            ok , emb_meta = pipeline.process_and_store(file_bytes, metadata)
             if not ok:
                 logger.error(f"❌ Embedding pipeline failed for {doc_loc}")
                 try:
@@ -368,6 +368,7 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                             "filename": doc_loc,
                             "embedding_model": embedding_model,
                             "embedding_provider": embedding_provider,
+                            "emb_meta" : emb_meta
                         },
                     )
                 except Exception as e:
@@ -396,6 +397,7 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                         "embedding_model": embedding_model,
                         "embedding_provider": embedding_provider,
                         "content_hash": content_hash,
+                        "emb_meta" : emb_meta
                     },
                 )
             except Exception as e:
