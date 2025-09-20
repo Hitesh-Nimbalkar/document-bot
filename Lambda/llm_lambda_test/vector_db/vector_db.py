@@ -11,7 +11,7 @@ from qdrant_client.models import (
     MatchValue,
 )
 from utils.utils import CustomLogger
-from utils.metadata import MetadataModel  # Pydantic metadata model
+#from utils.metadata import MetadataModel  # Pydantic metadata model
 from utils.dynamodb import DynamoMetadataService  # DynamoDB wrapper
 
 logger = CustomLogger("QdrantVectorDB")

@@ -87,3 +87,4 @@ class CustomException(Exception):
 
     def __repr__(self):
         return f"CustomException(file={self.file_name!r}, line={self.lineno}, message={self.message!r})"
+logger = CustomLogger(__name__)

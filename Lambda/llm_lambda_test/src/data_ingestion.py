@@ -1,50 +1,26 @@
-# ingestion_pipeline.py
-"""
-PDF Ingestion Pipeline
-----------------------
-Handles document ingestion into Qdrant:
-- Extract text, split into chunks
-- Embed using Bedrock (via ModelLoader)
-- Upsert into Qdrant
-- Metadata handling + duplication check
-- File management in S3
-- Chat history logging
-"""
 
-# ======================================================
-# Imports
-# ======================================================
 import os
-import io
-import uuid
 import boto3
 import hashlib
-from typing import List, Dict, Any, Union, Optional
-
+import io  # kept (may be used elsewhere)
 from botocore.exceptions import ClientError
-from pydantic import BaseModel
-
+from typing import List, Dict, Any, Union, Optional  # added Optional here
 from utils.metadata import MetadataManager, create_and_check_metadata
 from utils.logger import CustomLogger, CustomException
-from utils.split import split_into_chunks, detect_file_type, extract_text
-from utils.model_loader import ModelLoader, BedrockProvider
-
 from vector_db.vector_db import QdrantVectorDB
-from chat_history.chat_history import log_chat_history
-
-# ======================================================
-# Logger / AWS Clients / Env Vars
-# ======================================================
+from utils.split import split_into_chunks, detect_file_type, extract_text
+from chat_history.chat_history import log_chat_history  # ensure direct import
+from pydantic import BaseModel  # restored
+import uuid  # restored
+# Model loader imports (OpenAI removed for now)
+from utils.model_loader import ModelLoader, BedrockProvider
 logger = CustomLogger("PDFIngestionPipeline")
 s3 = boto3.client("s3")
-
 METADATA_TABLE = os.environ.get("METADATA_TABLE")
 DOCUMENTS_S3_BUCKET = os.environ.get("DOCUMENTS_S3_BUCKET")
-
-
-# ======================================================
-# Data Models
-# ======================================================
+# ---------------------------
+# Ingestion Payload
+# ---------------------------
 class IngestionPayload(BaseModel):
     session_id: str
     project_name: str
@@ -56,36 +32,55 @@ class IngestionPayload(BaseModel):
     embedding_provider: Optional[str] = None
     embedding_model: Optional[str] = None
 
-
+# ---------------------------
+# Ingestion Response
+# ---------------------------
 class IngestionResponse(BaseModel):
     statusCode: int
     body: str
-    s3_bucket: Optional[str] = None
-    s3_key: Optional[str] = None
+    s3_bucket: str 
+    s3_key: str
     ingest_source: Optional[str] = None
     source_path: Optional[str] = None
-    embedding_provider: Optional[str] = None
-    embedding_model: Optional[str] = None
+    embedding_provider: str
+    embedding_model: str
     metadata: Optional[Dict[str, Any]] = None
-
 
 class BatchIngestionResponse(BaseModel):
     results: List[IngestionResponse]
     summary: Optional[Dict[str, Any]] = None
 
 
-# ======================================================
-# PDF Ingestion Pipeline
-# ======================================================
+
 class PDFIngestionPipeline:
-    def __init__(self):
+    def __init__(self, embedding_provider: str = "bedrock", embedding_model: Optional[str] = None):
+        """
+        Initialize ingestion pipeline with explicit embedding provider and model.
+        """
         self.vector_db = QdrantVectorDB()
-        self.metadata_manager = MetadataManager()
+        self.metadata_manager = MetadataManager(vector_db_client=self.vector_db)
+
+        # Default embedding model if not provided
+        if not embedding_model:
+            if embedding_provider == "bedrock":
+                embedding_model = os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
+            else:
+                raise ValueError(f"Unsupported embedding provider: {embedding_provider}")
+
+        self.embedding_provider = embedding_provider
+        self.embedding_model = embedding_model
+
+        # Register provider + model with ModelLoader
         self.model_loader = ModelLoader()
         self.model_loader.register(
-            "bedrock",
-            BedrockProvider(region=os.getenv("BEDROCK_REGION", "us-east-1")),
-        )  # Auto-selected on first register
+            name=embedding_provider,
+            provider=BedrockProvider(
+                region=os.getenv("BEDROCK_REGION", "ap-south-1"),
+                embedding_model=embedding_model,
+            ),
+            model_name=embedding_model,
+        )
+        logger.info(f"📦 PDFIngestionPipeline initialized | provider={embedding_provider}, model={embedding_model}")
 
     def process_and_store(self, file_bytes: bytes, metadata: Dict[str, Any]) -> bool:
         """
@@ -93,109 +88,78 @@ class PDFIngestionPipeline:
         Uses ModelLoader (embed returns (embedding, meta)).
         """
         try:
+            doc_id = metadata.get("document_id")
             logger.info(
-                f"📥 Starting processing for doc_id={metadata.get('document_id')} "
-                f"(model={metadata.get('embedding_model')}, "
-                f"provider={metadata.get('embedding_provider')})"
+                f"📥 Starting processing for doc_id={doc_id} "
+                f"(model={self.embedding_model}, provider={self.embedding_provider})"
             )
 
-            # ---------------------------
-            # Provider selection
-            # ---------------------------
-            provider_name = metadata.get("embedding_provider") or "bedrock"
-            if provider_name != "bedrock":
-                logger.warning(
-                    f"⚠️ Provider '{provider_name}' requested but only 'bedrock' available; using bedrock"
-                )
-                provider_name = "bedrock"
-
-            # ---------------------------
             # 1. Extract text
-            # ---------------------------
             filename = metadata.get("filename", "")
             text = extract_text(file_bytes, filename)
-
             if not text.strip():
-                logger.warning("⚠️ No text extracted; aborting ingestion for this document")
+                logger.warning(f"⚠️ No text extracted for doc_id={doc_id}")
                 return False
-
             logger.debug(f"📝 Extracted text length={len(text)} characters")
 
-            # ---------------------------
-            # 2. Split into chunks
-            # ---------------------------
+            # 2. Chunk
             chunks = split_into_chunks(text, chunk_size=500)
-            logger.info(f"✂️ Split text into {len(chunks)} chunks")
-
+            logger.info(f"✂️ Split text into {len(chunks)} chunks for doc_id={doc_id}")
             if not chunks:
-                logger.warning("⚠️ No chunks created — skipping ingestion")
                 return False
 
-            # ---------------------------
-            # 3. Generate embeddings
-            # ---------------------------
+            # 3. Embeddings via model loader
             embeddings_to_upsert: List[Dict[str, Any]] = []
             vector_dim: Optional[int] = None
-            embedding_model = metadata.get("embedding_model")
 
             for idx, chunk in enumerate(chunks):
-                logger.debug(
-                    f"🔎 Embedding chunk {idx+1}/{len(chunks)} (len={len(chunk)}) "
-                    f"provider={provider_name} model={embedding_model}"
-                )
                 try:
-                    embedding, emb_meta = self.model_loader.embed(chunk, model_id=embedding_model)
+                    logger.debug(
+                        f"🔎 Embedding chunk {idx+1}/{len(chunks)} "
+                        f"(len={len(chunk)}) provider={self.embedding_provider} model={self.embedding_model}"
+                    )
+                    embedding, emb_meta = self.model_loader.embed(chunk, model_id=self.embedding_model)
 
-                    if not isinstance(embedding, list) or not embedding:
-                        logger.error(f"❌ Invalid embedding returned for chunk {idx}")
+                    if not embedding:
+                        logger.error(f"❌ Empty embedding returned for chunk {idx}")
                         return False
 
                     if vector_dim is None:
                         vector_dim = len(embedding)
-                        logger.info(
-                            f"📐 Embedding dimension detected={vector_dim} "
-                            f"(model={embedding_model}, provider={provider_name})"
-                        )
+                        logger.info(f"📐 Embedding dimension={vector_dim} (model={self.embedding_model})")
 
-                    if isinstance(emb_meta, dict) and emb_meta.get("cost"):
+                    embeddings_to_upsert.append({
+                        "id": str(uuid.uuid4()),
+                        "embedding": embedding,
+                        "metadata": {**metadata, "chunk_id": str(idx)},
+                        "text": chunk,
+                    })
+
+                    if emb_meta.get("cost"):
                         logger.debug(f"💲 Embedding cost chunk {idx+1}: {emb_meta['cost']}")
 
-                    embeddings_to_upsert.append(
-                        {
-                            "id": str(uuid.uuid4()),
-                            "embedding": embedding,
-                            "metadata": {**metadata, "chunk_id": str(idx)},
-                            "text": chunk,
-                        }
-                    )
                 except Exception as e:
                     logger.error(f"❌ Failed embedding chunk {idx}: {e}")
                     return False
 
-            # ---------------------------
             # 4. Upsert into Qdrant
-            # ---------------------------
             success = self.vector_db.upsert_embeddings(embeddings_to_upsert)
             if not success:
-                logger.error("❌ Failed to upsert embeddings into Qdrant")
+                logger.error(f"❌ Failed Qdrant upsert for doc_id={doc_id}")
                 return False
 
             logger.info(
                 f"✅ Successfully ingested {len(chunks)} chunks into Qdrant "
-                f"(doc_id={metadata['document_id']}, provider={provider_name})"
+                f"(doc_id={doc_id}, provider={self.embedding_provider}, model={self.embedding_model})"
             )
             return True
-
         except Exception as e:
-            logger.error(f"💥 Error in PDFIngestionPipeline: {e}", exc_info=True)
+            logger.error(f"💥 Error in PDFIngestionPipeline for doc_id={metadata.get('document_id')}: {e}", exc_info=True)
             return False
 
 
-# ======================================================
-# Utilities
-# ======================================================
+
 def move_file_s3_temp_to_documents(s3_bucket: str, temp_key: str, documents_key: str):
-    """Move file from temp S3 location to documents bucket"""
     try:
         logger.info(f"📂 Moving file: {temp_key} → {documents_key} (bucket={s3_bucket})")
         s3.copy_object(Bucket=s3_bucket, CopySource={"Bucket": s3_bucket, "Key": temp_key}, Key=documents_key)
@@ -205,131 +169,81 @@ def move_file_s3_temp_to_documents(s3_bucket: str, temp_key: str, documents_key:
         logger.error(f"💥 S3 move failed: {str(e)}", exc_info=True)
         raise CustomException(f"Error moving file in S3: {str(e)}")
 
-
 def compute_content_hash(file_bytes: bytes) -> str:
-    """Compute SHA256 content hash of file"""
     digest = hashlib.sha256(file_bytes).hexdigest()
     logger.debug(f"🔑 Computed content hash={digest}")
     return digest
 
-
-# ======================================================
-# Ingestion Entry Point
-# ======================================================
 def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionResponse]:
     """
     Validate payload, fetch file(s) from S3 temp, compute hash, check metadata,
     update DB, store embeddings, move file(s).
     """
     logger.info(f"🚀 Starting ingestion with payload={payload}")
-
     s3_bucket = DOCUMENTS_S3_BUCKET
     session_id = payload.get("session_id")
     project_name = payload.get("project_name")
     user_id = payload.get("user_id")
-
-    # ---------------------------
-    # Embedding provider/model resolution
-    # ---------------------------
+    # --- Embedding provider/model resolution ---
     embedding_provider = (payload.get("embedding_provider") or "bedrock").lower()
     allowed_providers = {"bedrock"}  # Future: add more providers here
-
     if embedding_provider not in allowed_providers:
-        logger.error(
-            f"❌ Unsupported embedding_provider '{embedding_provider}' (allowed={allowed_providers})"
-        )
+        logger.error(f"❌ Unsupported embedding_provider '{embedding_provider}' (allowed={allowed_providers})")
         return BatchIngestionResponse(
-            results=[
-                IngestionResponse(
-                    statusCode=400,
-                    body=f"Unsupported embedding_provider: {embedding_provider}",
-                )
-            ],
+            results=[IngestionResponse(statusCode=400, body=f"Unsupported embedding_provider: {embedding_provider}")],
             summary={"total": 1, "succeeded": 0, "duplicates": 0, "unsupported": 0, "errors": 1},
         )
-
     embedding_model = payload.get("embedding_model")
     if not embedding_model:
         if embedding_provider == "bedrock":
             embedding_model = os.environ.get("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
         else:  # placeholder for future providers
             embedding_model = "default-model"
-        logger.info(
-            f"ℹ️ Using default embedding model '{embedding_model}' for provider '{embedding_provider}'"
-        )
+        logger.info(f"ℹ️ Using default embedding model '{embedding_model}' for provider '{embedding_provider}'")
 
-    # ---------------------------
-    # Initialize pipeline
-    # ---------------------------
-    pipeline = PDFIngestionPipeline()
-
-    # ---------------------------
-    # Log ingestion start
-    # ---------------------------
+    # Initialize pipeline with provider + model
+    pipeline = PDFIngestionPipeline(
+        embedding_provider=embedding_provider,
+        embedding_model=embedding_model,
+    )
+    # Log ingestion start to chat history
     try:
         doc_list = []
         if payload.get("doc_loc"):
             doc_list.append(payload["doc_loc"])
         if payload.get("doc_locs"):
             doc_list.extend(payload["doc_locs"])
-
         files_text = ", ".join(doc_list) if doc_list else "multiple files"
-        start_message = (
-            f"🚀 Starting document ingestion for: {files_text} "
-            f"(provider={embedding_provider}, model={embedding_model})"
-        )
+        start_message = f"🚀 Starting document ingestion for: {files_text} (provider={embedding_provider}, model={embedding_model})"
         log_chat_history(
             event={},
             payload=payload,
             role="system",
             content=start_message,
-            metadata={
-                "action": "ingestion_start",
-                "files": doc_list,
-                "embedding_provider": embedding_provider,
-                "embedding_model": embedding_model,
-            },
+            metadata={"action": "ingestion_start", "files": doc_list, "embedding_provider": embedding_provider, "embedding_model": embedding_model},
         )
     except Exception as e:
         logger.warning(f"⚠️ Failed to log ingestion start to chat history: {e}")
-
     logger.debug(f"🌍 Env vars → BUCKET={s3_bucket}, METADATA_TABLE={METADATA_TABLE}")
-
-    # ---------------------------
-    # File list setup
-    # ---------------------------
     doc_locs: List[str] = []
     if payload.get("doc_loc"):
         doc_locs.append(payload["doc_loc"])
     if payload.get("doc_locs"):
         doc_locs.extend(payload["doc_locs"])
-
     logger.debug(f"📄 Files to ingest={doc_locs}")
-
     temp_prefix = os.getenv("TEMP_DATA_KEY")
     documents_prefix = os.getenv("DOCUMENTS_DATA_KEY")
     logger.debug(f"📂 Prefixes → TEMP={temp_prefix}, DOCS={documents_prefix}")
-
     results: List[IngestionResponse] = []
-
-    # ---------------------------
-    # Process each document
-    # ---------------------------
     for doc_loc in doc_locs:
         try:
-            # Construct S3 keys
             temp_s3_key = f"{temp_prefix}/{project_name}/{doc_loc}"
             doc_s3_key = f"{documents_prefix}/{project_name}/{doc_loc}"
             logger.info(f"🔗 Constructed S3 keys: temp={temp_s3_key}, doc={doc_s3_key}")
-
-            # File type check
             if not doc_loc.lower().endswith((".pdf", ".docx", ".txt")):
                 logger.warning(f"⚠️ Skipping unsupported file type: {doc_loc}")
                 try:
-                    unsupported_message = (
-                        f"⚠️ Unsupported file type: {doc_loc} "
-                        f"(only PDF, DOCX, and TXT files are supported)"
-                    )
+                    unsupported_message = f"⚠️ Unsupported file type: {doc_loc} (only PDF, DOCX, and TXT files are supported)"
                     log_chat_history(
                         event={},
                         payload=payload,
@@ -339,7 +253,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     )
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log unsupported file type to chat history: {e}")
-
                 results.append(
                     IngestionResponse(
                         statusCode=415,
@@ -349,31 +262,22 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     )
                 )
                 continue
-
-            # Download file
             logger.info(f"⬇️ Downloading {temp_s3_key} from {s3_bucket}")
             s3_obj = s3.get_object(Bucket=s3_bucket, Key=temp_s3_key)
             file_bytes = s3_obj["Body"].read()
             logger.info(f"📦 Downloaded {temp_s3_key} (size={len(file_bytes)} bytes)")
-
-            # Detect file type
+            # Detect file type (new)
             detected_type = detect_file_type(doc_loc, file_bytes)
             logger.info(f"🧪 Detected file_type={detected_type} for {doc_loc}")
-
-            # Compute content hash
             content_hash = compute_content_hash(file_bytes)
-
-            # Setup metadata
             ingest_source = payload.get("ingest_source") or "user_upload"
             source_path = payload.get("source_path") or "UI"
             logger.debug(
-                f"🛠 Metadata setup → source={ingest_source}, path={source_path}, "
-                f"provider={embedding_provider}, model={embedding_model}"
+                f"🛠 Metadata setup → source={ingest_source}, path={source_path}, provider={embedding_provider}, model={embedding_model}"
             )
-
-            metadata_manager = MetadataManager()
+            # Use the pipeline's metadata_manager which has vector_db_client
             metadata, exists = create_and_check_metadata(
-                manager=metadata_manager,
+                manager=pipeline.metadata_manager,  # Use pipeline's manager with vector DB client
                 s3_key=temp_s3_key,
                 project_name=project_name,
                 user_id=user_id,
@@ -386,15 +290,14 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                 filename=doc_loc,
                 file_type=detected_type or "unknown",
                 file_size=len(file_bytes),
+                verify_embeddings=True,  # Enable vector DB verification
             )
-
-            # Duplicate check
-            if exists.get("exact_exists"):
-                logger.warning(f"⚠️ Duplicate detected (same file + same model) → {doc_loc}")
+            # Enhanced duplicate checking logic
+            if exists.get("should_skip"):
+                logger.warning(f"⚠️ Document fully processed (metadata + embeddings verified) → {doc_loc}")
                 try:
                     duplicate_message = (
-                        f"⚠️ Duplicate document detected: {doc_loc} "
-                        f"(same file with same embedding model already exists)"
+                        f"⚠️ Document already fully processed: {doc_loc} (both metadata and embeddings exist in vector database)"
                     )
                     log_chat_history(
                         event={},
@@ -402,35 +305,53 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                         role="system",
                         content=duplicate_message,
                         metadata={
-                            "action": "duplicate_detected",
+                            "action": "fully_processed_skip",
                             "filename": doc_loc,
                             "embedding_model": embedding_model,
                             "embedding_provider": embedding_provider,
                         },
                     )
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to log duplicate detection to chat history: {e}")
-
+                    logger.warning(f"⚠️ Failed to log fully processed skip to chat history: {e}")
                 results.append(
                     IngestionResponse(
                         statusCode=409,
-                        body=f"Duplicate data already exists: {doc_loc}",
+                        body=f"Document already fully processed: {doc_loc}",
                         s3_bucket=s3_bucket,
                         s3_key=doc_s3_key,
                     )
                 )
                 continue
+            elif exists.get("exact_exists") and not exists.get("embeddings_verified"):
+                logger.warning(f"⚠️ Metadata exists but embeddings missing in vector DB → will reprocess {doc_loc}")
+                try:
+                    reprocess_message = (
+                        f"⚠️ Incomplete processing detected for: {doc_loc} (metadata exists but embeddings missing in vector database, will reprocess)"
+                    )
+                    log_chat_history(
+                        event={},
+                        payload=payload,
+                        role="system",
+                        content=reprocess_message,
+                        metadata={
+                            "action": "incomplete_reprocess",
+                            "filename": doc_loc,
+                            "embedding_model": embedding_model,
+                            "embedding_provider": embedding_provider,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"⚠️ Failed to log reprocess message to chat history: {e}")
             elif exists.get("any_exists"):
-                logger.info(f"ℹ️ Same file already exists in project (different model) → continuing ingestion")
+                logger.info(
+                    f"ℹ️ Same file already exists in project (different model) → continuing ingestion"
+                )
             else:
                 logger.info(f"✅ No duplicates found for {doc_loc}")
-
             if exists.get("saved"):
-                logger.info("✅ Metadata saved successfully to DynamoDB")
+                logger.info(f"✅ Metadata saved successfully to DynamoDB")
             else:
-                logger.info("ℹ️ Metadata not saved (duplicate or error)")
-
-            # Run embedding pipeline
+                logger.info(f"ℹ️ Metadata not saved (duplicate or error)")
             logger.info(f"⚙️ Running embedding pipeline for {doc_loc}")
             ok = pipeline.process_and_store(file_bytes, metadata)
             if not ok:
@@ -451,7 +372,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     )
                 except Exception as e:
                     logger.warning(f"⚠️ Failed to log embedding error to chat history: {e}")
-
                 results.append(
                     IngestionResponse(
                         statusCode=500,
@@ -461,11 +381,7 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     )
                 )
                 continue
-
-            # Move file from temp to documents
             move_file_s3_temp_to_documents(s3_bucket, temp_s3_key, doc_s3_key)
-
-            # Log success
             try:
                 success_message = f"✅ Successfully ingested document: {doc_loc}"
                 log_chat_history(
@@ -484,7 +400,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                 )
             except Exception as e:
                 logger.warning(f"⚠️ Failed to log successful ingestion to chat history: {e}")
-
             results.append(
                 IngestionResponse(
                     statusCode=201,
@@ -498,7 +413,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     metadata=metadata,
                 )
             )
-
         except Exception as e:
             logger.error(f"💥 Unexpected error ingesting {doc_loc}: {e}", exc_info=True)
             try:
@@ -512,7 +426,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                 )
             except Exception as chat_error:
                 logger.warning(f"⚠️ Failed to log unexpected error to chat history: {chat_error}")
-
             results.append(
                 IngestionResponse(
                     statusCode=500,
@@ -520,10 +433,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     s3_bucket=s3_bucket,
                 )
             )
-
-    # ---------------------------
-    # Ingestion summary
-    # ---------------------------
     summary = {
         "total": len(results),
         "succeeded": sum(1 for r in results if r.statusCode in (200, 201)),
@@ -531,4 +440,30 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
         "unsupported": sum(1 for r in results if r.statusCode == 415),
         "errors": sum(1 for r in results if r.statusCode >= 500),
     }
+    logger.info(f"📊 Ingestion summary={summary}")
+    try:
+        summary_message = (
+            f"📊 Document ingestion completed! "
+            f"Total: {summary['total']}, "
+            f"Succeeded: {summary['succeeded']}, "
+            f"Duplicates: {summary['duplicates']}, "
+            f"Unsupported: {summary['unsupported']}, "
+            f"Errors: {summary['errors']}"\
+        )
+        log_chat_history(
+            event={},
+            payload=payload,
+            role="system",
+            content=summary_message,
+            metadata={
+                "action": "ingestion_summary",
+                "summary": summary,
+                "embedding_provider": embedding_provider,
+                "embedding_model": embedding_model,
+            },
+        )
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to log ingestion summary to chat history: {e}")
+    return BatchIngestionResponse(results=results, summary=summary)
+
 

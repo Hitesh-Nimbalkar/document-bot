@@ -12,7 +12,7 @@ import time  # added for retry backoff
 DEFAULT_EMBEDDING_MODEL = os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
 DEFAULT_LLM_MODEL = os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0")
 DEFAULT_RERANK_MODEL = os.getenv("DEFAULT_RERANK_MODEL", "cohere.rerank-v1")
-BEDROCK_REGION_DEFAULT = os.getenv("BEDROCK_REGION", "us-east-1")
+BEDROCK_REGION_DEFAULT = os.getenv("BEDROCK_REGION", "ap-south-1")
 
 # Cost configuration (replace with real pricing as needed)
 MODEL_COSTS: Dict[str, Dict[str, float]] = {
@@ -95,8 +95,8 @@ class BedrockProvider:
 
     def __init__(
         self,
+        embedding_model: str,
         region: str = BEDROCK_REGION_DEFAULT,
-        embedding_model: Optional[str] = None,
         llm_model: Optional[str] = None,
         rerank_model: Optional[str] = None,
         logger: Optional[logging.Logger] = None,
@@ -311,71 +311,87 @@ class BedrockProvider:
 # Model Loader
 # =============================================================================
 class ModelLoader:
-    """
-    Manages providers with a unified API. Each method returns (result, meta).
-    First provider registered (with select=None) is auto-selected.
-    Call use(name) only when you have multiple providers and want to switch.
-    """
+    """Manages providers with a unified API (first registered = active)."""
 
-    def __init__(self):
-        self._providers: Dict[str, Provider] = {}
+    def __init__(self, logger: Optional[logging.Logger] = None):
+        # store both provider and its metadata (like model_name)
+        self._providers: Dict[str, Dict[str, Any]] = {}
         self._current: Optional[str] = None
+        self._logger = logger or logging.getLogger("ModelLoader")
 
-    # -- Registration & selection --
-    def register(self, name: str, provider: Provider, select: Optional[bool] = None):
+    def register(
+        self,
+        name: str,
+        provider: Provider,
+        model_name: Optional[str] = None,
+        select: Optional[bool] = None,
+    ):
         """
-        Register a provider.
-        select:
-          None (default): auto-select ONLY if no provider is currently active.
-          True: force select this provider.
-          False: do not select (leave current unchanged).
+        Register a provider with an optional model name.
+
+        Args:
+            name: Alias for the provider ("bedrock", etc.)
+            provider: The Provider instance
+            model_name: Optional model identifier (e.g., "claude-3-sonnet")
+            select: None=auto-select first, True=force select, False=don’t select
         """
-        self._providers[name] = provider
+        self._providers[name] = {"provider": provider, "model_name": model_name}
         if select is True or (select is None and self._current is None):
             self._current = name
-        return self  # chaining
+        self._logger.info(f"Provider registered: {name} | model={model_name}")
+        return self
 
     def use(self, name: str):
-        """Switch active provider. Only needed if multiple providers are registered."""
         if name not in self._providers:
             raise ValueError(f"Provider '{name}' not registered")
         self._current = name
+        model_name = self._providers[name].get("model_name")
+        self._logger.info(f"Switched to provider: {name} | model={model_name}")
 
     def current(self) -> Provider:
         if not self._current:
-            raise RuntimeError("No provider selected. Call use('<provider_name>') first.")
-        return self._providers[self._current]
+            raise RuntimeError("No provider selected")
+        return self._providers[self._current]["provider"]
 
-    # -- Delegated operations --
+    def current_model(self) -> Optional[str]:
+        """Return the model name for the current provider, if set."""
+        if not self._current:
+            return None
+        return self._providers[self._current].get("model_name")
+
+    # Delegated ops
     def embed(self, *args, **kwargs):
+        model_name = self.current_model()
+        self._logger.info(f"embed() called | model={model_name}")
         return self.current().embed(*args, **kwargs)
 
     def generate(self, *args, **kwargs):
+        model_name = self.current_model()
+        self._logger.info(f"generate() called | model={model_name}")
         return self.current().generate(*args, **kwargs)
 
     def rerank(self, *args, **kwargs):
+        model_name = self.current_model()
+        self._logger.info(f"rerank() called | model={model_name}")
         return self.current().rerank(*args, **kwargs)
 
     def generate_json(self, prompt: str, **kwargs) -> Dict[str, Any]:
-        """Generate expecting JSON; returns parsed dict (meta discarded)."""
+        model_name = self.current_model()
+        self._logger.info(f"generate_json() called | model={model_name}")
         text, _meta = self.generate(prompt, **kwargs)
+
         if isinstance(text, dict):
             return text
         if not isinstance(text, str):
-            raise ValueError("Model output not string or dict; cannot parse JSON")
+            raise ValueError("Output not string/dict; cannot parse JSON")
 
         try:
             return json.loads(text)
         except Exception:
             start, end = text.find("{"), text.rfind("}")
             if start != -1 and end != -1 and end > start:
-                fragment = text[start:end + 1]
-                try:
-                    return json.loads(fragment)
-                except Exception:
-                    pass
-        raise ValueError("Failed to parse model output as JSON")
-
+                return json.loads(text[start:end + 1])
+        raise ValueError("Failed to parse JSON output")
 
 # =============================================================================
 # Example Usage
@@ -385,7 +401,7 @@ if __name__ == "__main__":
 
     print("=== Example (concise) ===")
     try:
-        provider = BedrockProvider(region="us-east-1")
+        provider = BedrockProvider(region="ap-south-1")
         loader = ModelLoader().register("bedrock", provider)  # auto-selected
         emb, emb_meta = loader.embed("Example embedding text")
         print("Embedding dims:", len(emb), "| cost:", emb_meta.get("cost"))

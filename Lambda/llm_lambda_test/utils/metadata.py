@@ -1,5 +1,8 @@
 
 
+
+
+
 """
 Simplified Metadata Management Utilities
 This module provides a clean, simplified approach to metadata operations:
@@ -87,12 +90,13 @@ class MetadataManager:
     Clean metadata manager with only basic atomic operations.
     Contains only atomic operations that can be used by complex workflow functions.
     """
-    def __init__(self, table_name: Optional[str] = None):
+    def __init__(self, table_name: Optional[str] = None, vector_db_client=None):
         """
         Initialize MetadataManager with DynamoDB client and table name.
         
         Args:
             table_name: Optional table name. If not provided, reads from METADATA_TABLE env var.
+            vector_db_client: Optional vector database client for embedding verification
         """
         # Get table name from parameter or environment variable
         self.ddb_table = table_name or os.environ.get("METADATA_TABLE")
@@ -101,8 +105,9 @@ class MetadataManager:
             raise CustomException("DynamoDB table name not found. Provide table_name parameter or set METADATA_TABLE environment variable")
         
         self.dynamo_client = EnhancedDynamoDBClient()
+        self.vector_db_client = vector_db_client  # Optional vector DB client for verification
         
-        logger.info(f"✅ MetadataManager initialized with table={self.ddb_table}")
+        logger.info(f"✅ MetadataManager initialized with table={self.ddb_table}, vector_db={'enabled' if vector_db_client else 'disabled'}")
     def save_metadata(self, metadata: dict) -> bool:
         """Save metadata to DynamoDB"""
         logger.info(f"💾 Saving metadata for document_id={metadata.get('document_id')} to table={self.ddb_table}")
@@ -169,8 +174,44 @@ class MetadataManager:
         except Exception as e:
             logger.error(f"❌ Error deleting metadata: {str(e)}", exc_info=True)
             return False
-    def check_metadata_exists(self, content_hash: str, embedding_model: Optional[str] = None) -> Tuple[bool, bool]:
-        """Check if metadata exists for the given content_hash and embedding_model"""
+    def check_embeddings_exist(self, document_id: str) -> bool:
+        """
+        Check if embeddings exist in the vector database for the given document_id.
+        Returns True if embeddings exist, False otherwise.
+        """
+        if not self.vector_db_client:
+            logger.warning("⚠️ Vector DB client not available, skipping embedding verification")
+            return True  # Assume embeddings exist if we can't verify
+        
+        try:
+            logger.debug(f"🔍 Checking vector DB for embeddings of document_id={document_id}")
+            
+            # This method signature may vary based on your vector DB implementation
+            # Common approaches: check by document_id, check by metadata filter, etc.
+            embeddings_exist = self.vector_db_client.document_exists(document_id)
+            
+            logger.debug(f"Vector DB check result for document_id={document_id}: {embeddings_exist}")
+            return embeddings_exist
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Error checking vector DB for document_id={document_id}: {str(e)}")
+            return False  # Assume embeddings don't exist if we can't verify
+    def check_metadata_exists(self, content_hash: str, embedding_model: Optional[str] = None, verify_embeddings: bool = True) -> Tuple[bool, bool, bool]:
+        """
+        Check if metadata exists for the given content_hash and embedding_model.
+        Now also verifies if embeddings actually exist in vector database.
+        
+        Args:
+            content_hash: Hash of the document content
+            embedding_model: Specific embedding model to check for
+            verify_embeddings: Whether to verify embeddings exist in vector DB
+            
+        Returns:
+            Tuple of (any_exists, exact_exists, embeddings_verified)
+            - any_exists: Any metadata found for this content_hash
+            - exact_exists: Exact match found (content_hash + embedding_model)
+            - embeddings_verified: Whether embeddings actually exist in vector DB
+        """
         logger.debug(f"🔍 Checking metadata existence for content_hash={content_hash[:12]}...")
         
         try:
@@ -182,15 +223,39 @@ class MetadataManager:
             )
             any_exists = bool(items)
             exact_exists = False
+            embeddings_verified = False
+            
             if embedding_model:
-                exact_exists = any(
-                    item.get("embedding_model") == embedding_model for item in items
-                )
-                logger.debug(f"Checked for exact embedding_model={embedding_model}: {exact_exists}")
+                # Find exact matches for the embedding model
+                exact_matches = [
+                    item for item in items 
+                    if item.get("embedding_model") == embedding_model
+                ]
+                exact_exists = bool(exact_matches)
+                
+                if exact_exists and verify_embeddings:
+                    # Verify embeddings exist in vector DB for exact matches
+                    for match in exact_matches:
+                        document_id = match.get("document_id")
+                        if document_id and self.check_embeddings_exist(document_id):
+                            embeddings_verified = True
+                            break
+                    
+                    if not embeddings_verified:
+                        logger.warning(f"⚠️ Metadata exists but embeddings missing in vector DB for content_hash={content_hash[:12]}")
+                        # Update status to indicate incomplete processing
+                        for match in exact_matches:
+                            document_id = match.get("document_id")
+                            if document_id:
+                                self.update_metadata_status(document_id, "embeddings_missing")
+                elif exact_exists and not verify_embeddings:
+                    embeddings_verified = True  # Skip verification when requested
+                
+                logger.debug(f"Exact match check → embedding_model={embedding_model}, exact_exists={exact_exists}, embeddings_verified={embeddings_verified}")
             logger.info(
-                f"Duplicate check result → any_exists={any_exists}, exact_exists={exact_exists}"
+                f"Duplicate check result → any_exists={any_exists}, exact_exists={exact_exists}, embeddings_verified={embeddings_verified}"
             )
-            return any_exists, exact_exists
+            return any_exists, exact_exists, embeddings_verified
         except Exception as e:
             logger.error(f"❌ Error querying DynamoDB for content_hash={content_hash}: {str(e)}", exc_info=True)
             raise CustomException(f"Error checking metadata: {str(e)}")
@@ -251,9 +316,10 @@ def create_and_check_metadata(
     file_type: str,
     file_size: int,
     auto_save: bool = True,
+    verify_embeddings: bool = True,
 ) -> Tuple[dict, dict]:
     """
-    Build metadata, check duplicates, optionally save, return both.
+    Build metadata, check duplicates (including vector DB verification), optionally save, return both.
     All inputs are now required (no Optional types). Caller must supply defaults if unknown.
     """
     logger.info(f"🚀 Creating + checking metadata for file={filename or s3_key}")
@@ -290,24 +356,31 @@ def create_and_check_metadata(
         f"📄 File info → name={filename} type={file_type} size={file_size} bytes"
     )
     logger.debug(f"📦 Metadata prepared → {metadata}")
-    # Check for duplicates using MetadataManager basic method
-    any_exists, exact_exists = manager.check_metadata_exists(content_hash, embedding_model)
+    # Check for duplicates using MetadataManager basic method with embedding verification
+    any_exists, exact_exists, embeddings_verified = manager.check_metadata_exists(
+        content_hash, embedding_model, verify_embeddings
+    )
     
-    # Auto-save if requested and no exact duplicate exists
+    # Determine if we should proceed with processing
+    should_skip = exact_exists and embeddings_verified
+    
+    # Auto-save if requested and document is not fully processed
     saved = False
-    if auto_save and not exact_exists:
-        logger.info(f"💾 Auto-saving metadata (no exact duplicate found)")
+    if auto_save and not should_skip:
+        logger.info(f"💾 Auto-saving metadata (document not fully processed)")
         saved = manager.save_metadata(metadata)
         if saved:
             # Update status using MetadataManager basic method
             manager.update_metadata_status(metadata["document_id"], "uploaded")
-    elif exact_exists:
-        logger.info(f"⚠️ Exact duplicate found, skipping auto-save")
+    elif should_skip:
+        logger.info(f"⚠️ Document fully processed (metadata + embeddings exist), skipping auto-save")
     else:
         logger.info(f"📝 Auto-save disabled, metadata prepared but not saved")
     exists = {
         "any_exists": any_exists, 
         "exact_exists": exact_exists,
+        "embeddings_verified": embeddings_verified,
+        "should_skip": should_skip,
         "saved": saved
     }
     logger.info(f"✅ Final metadata ready (exists={exists}) for file={filename or s3_key}")
@@ -327,7 +400,8 @@ def process_document_metadata(
     filename: Optional[str] = None,
     file_type: Optional[str] = None,
     file_size: Optional[int] = None,
-    force_save: bool = False
+    force_save: bool = False,
+    verify_embeddings: bool = True
 ) -> dict:
     """
     Complete document metadata processing workflow.
@@ -361,14 +435,30 @@ def process_document_metadata(
             filename=_filename,
             file_type=_file_type,
             file_size=_file_size,
-            auto_save=False
+            auto_save=False,
+            verify_embeddings=verify_embeddings
         )
+        
         document_id = metadata["document_id"]
         actions_taken = {"saved": False, "skipped_reason": None}
-        if exists["exact_exists"] and not force_save:
-            logger.info(f"⚠️ Exact duplicate found for {_filename}, skipping save")
-            actions_taken["skipped_reason"] = "exact_duplicate_exists"
+        
+        # Enhanced duplicate logic considering embeddings
+        if exists["should_skip"] and not force_save:
+            logger.info(f"⚠️ Document fully processed (metadata + embeddings), skipping save for {_filename}")
+            actions_taken["skipped_reason"] = "fully_processed"
             status = "duplicate_skipped"
+        elif exists["exact_exists"] and not exists["embeddings_verified"]:
+            logger.warning(f"⚠️ Metadata exists but embeddings missing for {_filename}, will reprocess")
+            save_success = manager.save_metadata(metadata)
+            if save_success:
+                actions_taken["saved"] = True
+                manager.update_metadata_status(document_id, "reprocessing")
+                status = "reprocessing_incomplete"
+                logger.info(f"✅ Document marked for reprocessing: {document_id}")
+            else:
+                status = "error"
+                actions_taken["skipped_reason"] = "save_failed"
+                logger.error(f"❌ Failed to save metadata for reprocessing: {_filename}")
         else:
             logger.info(f"💾 Saving metadata for {_filename}")
             save_success = manager.save_metadata(metadata)
@@ -380,6 +470,7 @@ def process_document_metadata(
                 status = "error"
                 actions_taken["skipped_reason"] = "save_failed"
                 logger.error(f"❌ Failed to save metadata for: {_filename}")
+        
         result = {
             "document_id": document_id,
             "metadata": metadata,
