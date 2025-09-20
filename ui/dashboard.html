@@ -1,0 +1,164 @@
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Bot - Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            min-height: 100vh;
+        }
+        .header {
+            background: #fff;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            display: flex;
+            justify-content: between;
+            align-items: center;
+        }
+        .header h1 {
+            color: #4a5568;
+            font-size: 24px;
+        }
+        .user-info {
+            margin-left: auto;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .session-info {
+            background: #e6fffa;
+            border: 1px solid #81e6d9;
+            padding: 10px 15px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+        .session-info p {
+            color: #2c7a7b;
+            margin: 2px 0;
+        }
+        .logout-btn {
+            background: #e53e3e;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .logout-btn:hover {
+            background: #c53030;
+        }
+        .main-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        .features-section h3 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            font-size: 20px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .feature-card {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+        }
+        .feature-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+        .feature-icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+        }
+        .feature-card h4 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        .feature-card p {
+            color: #718096;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <h1>📄 Document Bot Dashboard</h1>
+        <div class="user-info">
+            <span id="username">Loading...</span>
+            <div class="session-info">
+                <p><strong>Session ID:</strong> <span id="sessionId">Loading...</span></p>
+                <p><strong>Login Time:</strong> <span id="loginTime">Loading...</span></p>
+            </div>
+            <button class="logout-btn" onclick="handleLogout()">Logout</button>
+        </div>
+    </header>
+    <div class="main-container">
+        <div class="features-section">
+            <h3>Available Features</h3>
+            <div class="features-grid">
+                <a href="ingest/ingest.html" class="feature-card">
+                    <div class="feature-icon">📁</div>
+                    <h4>Data Ingestion</h4>
+                    <p>Upload and process documents for AI analysis. Supports PDF, DOCX, and TXT files.</p>
+                </a>
+                <a href="chatbot.html" class="feature-card">
+                    <div class="feature-icon">💬</div>
+                    <h4>Chatbot Query</h4>
+                    <p>Ask questions about your documents using AI-powered chat interface.</p>
+                </a>
+            </div>
+        </div>
+    </div>
+    <script src="api-config.js"></script>
+    <script>
+        // Check authentication and load user info
+        document.addEventListener('DOMContentLoaded', function() {
+            // Require authentication
+            const session = requireAuth();
+            
+            if (session) {
+                // Display user information
+                document.getElementById('username').textContent = session.user.username;
+                document.getElementById('sessionId').textContent = session.sessionId || 'Not available';
+                
+                // Format login time
+                if (session.loginTime) {
+                    const loginDate = new Date(session.loginTime);
+                    document.getElementById('loginTime').textContent = loginDate.toLocaleString();
+                } else {
+                    document.getElementById('loginTime').textContent = 'Not available';
+                }
+            }
+        });
+        // Logout handler
+        function handleLogout() {
+            if (confirm('Are you sure you want to logout?')) {
+                logout();
+            }
+        }
+    </script>
+</body>
+</html>

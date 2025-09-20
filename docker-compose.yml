@@ -24,7 +24,7 @@ services:
       VECTOR_DIMENSION: 1024
 
   ui:
-    build: ./ui            
+    build: ./ui          
     container_name: brain-ui
     ports:
       - "3000:80"

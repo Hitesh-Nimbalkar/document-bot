@@ -1,6 +1,6 @@
+
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
-
 # ---------------------------
 # Model for analyze_document action
 # ---------------------------
@@ -11,7 +11,6 @@ class AnalyzeDocumentPayload(BaseModel):
     user_id: Optional[str] = Field(None, description="User identifier")
     session_id: Optional[str] = Field(None, description="Session identifier")
 
-
 # ---------------------------
 # Dedicated payload for document comparison requests
 # ---------------------------
@@ -21,7 +20,6 @@ class CompareDocumentsPayload(BaseModel):
     session_id: str
     document_1: dict  # expects {'s3_bucket': str, 's3_key': str}
     document_2: dict  # expects {'s3_bucket': str, 's3_key': str}
-
 # ---------------------------
 # Input model for document comparison
 # ---------------------------
@@ -29,7 +27,6 @@ class DocumentComparisonInput(BaseModel):
     document_1: str
     document_2: str
     extra_instructions: Optional[str] = None
-
 # ---------------------------
 # Model for document comparison results
 # ---------------------------
@@ -39,7 +36,6 @@ class DocumentComparisonResult(BaseModel):
     unique_to_doc1: Optional[str] = None
     unique_to_doc2: Optional[str] = None
     metadata: Optional[dict] = None
-
 # ---------------------------
 # Data analysis metadata
 # ---------------------------
@@ -50,12 +46,10 @@ class Entity(BaseModel):
     start_pos: Optional[int] = None
     end_pos: Optional[int] = None
 
-
 class SectionSummary(BaseModel):
     """Summary for a specific section of the document"""
     section_title: Optional[str] = None
     summary_text: str
-
 
 class DataAnalysisMetadata(BaseModel):
     """Structured metadata for the analyzed document"""

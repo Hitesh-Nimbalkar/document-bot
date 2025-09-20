@@ -1,0 +1,271 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Document Ingestion | ResBot Document Assistant</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <!-- Custom CSS -->
+    <link href="css/ingest.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <nav class="navbar navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="../dashboard.html">
+                <i class="fas fa-robot me-2"></i>ResBot Document Assistant
+            </a>
+            <div class="d-flex align-items-center">
+                <span class="text-light me-3" id="userInfo">Loading...</span>
+                <button class="btn btn-outline-light btn-sm" onclick="logout()">
+                    <i class="fas fa-sign-out-alt me-1"></i>Logout
+                </button>
+            </div>
+        </div>
+    </nav>
+    <!-- Main Content -->
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-upload me-2"></i>Document Ingestion
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- Project Name Input -->
+                        <div class="mb-4">
+                            <label for="projectNameInput" class="form-label required">Project Name</label>
+                            <input type="text" class="form-control" id="projectNameInput" 
+                                   placeholder="Enter project name..." maxlength="100">
+                            <div class="form-text">Choose a unique name for your document collection</div>
+                        </div>
+                        <!-- Embedding Model Selection -->
+                        <div class="mb-4">
+                            <label for="embeddingModelSelect" class="form-label required">Embedding Model</label>
+                            <select class="form-select" id="embeddingModelSelect">
+                                <option value="">Loading embedding models...</option>
+                            </select>
+                            <div class="form-text">Select the embedding model for document processing</div>
+                            
+                            <!-- Model Info Display -->
+                            <div id="modelInfo" class="mt-2" style="display: none;">
+                                <div class="card border-info">
+                                    <div class="card-body py-2">
+                                        <small id="modelDetails" class="text-muted"></small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Upload Section -->
+                        <div class="mb-4">
+                            <label class="form-label required">Upload Documents</label>
+                            <div id="dropZone" class="drop-zone">
+                                <div class="drop-zone-content">
+                                    <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                                    <h6>Drop files here or click to browse</h6>
+                                    <p class="text-muted mb-0">
+                                        Supports: PDF, DOC, DOCX, TXT, MD<br>
+                                        Maximum file size: 10MB per file
+                                    </p>
+                                    <input type="file" id="fileInput" multiple accept=".pdf,.doc,.docx,.txt,.md" hidden>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Selected Files Display -->
+                        <div id="selectedFiles" class="mb-4" style="display: none;">
+                            <label class="form-label">Selected Files</label>
+                            <div id="fileList" class="file-list"></div>
+                        </div>
+                        <!-- Upload Progress -->
+                        <div id="uploadProgress" class="mb-4" style="display: none;">
+                            <label class="form-label">Upload Progress</label>
+                            <div class="progress mb-2">
+                                <div id="uploadProgressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                                     role="progressbar" style="width: 0%">0%</div>
+                            </div>
+                            <div id="uploadStatus" class="upload-status"></div>
+                        </div>
+                        <!-- Project Files Display -->
+                        <div id="projectFilesSection" class="mb-4" style="display: none;">
+                            <label class="form-label">
+                                <i class="fas fa-folder-open me-2"></i>Project Files
+                                <button class="btn btn-outline-secondary btn-sm ms-2" onclick="window.uiManager.loadProjectFiles()">
+                                    <i class="fas fa-sync-alt"></i> Refresh
+                                </button>
+                            </label>
+                            <div id="projectFilesList" class="project-files-list"></div>
+                        </div>
+                        <!-- Action Buttons -->
+                        <div class="d-flex gap-2 flex-wrap">
+                            <button id="uploadBtn" class="btn btn-primary" disabled onclick="window.uploadManager.uploadSelectedFiles()">
+                                <i class="fas fa-upload me-2"></i>Upload Files
+                            </button>
+                            <button id="processDocsBtn" class="btn btn-success" disabled onclick="window.dataIngestionManager.processDocuments()">
+                                <i class="fas fa-cogs me-2"></i>Process Documents
+                            </button>
+                            <button class="btn btn-outline-secondary" onclick="clearAll()">
+                                <i class="fas fa-trash me-2"></i>Clear All
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- Processing Status -->
+                <div id="processingStatus" class="mt-4" style="display: none;"></div>
+                <!-- Upload History -->
+                <div id="uploadHistory" class="mt-4" style="display: none;">
+                    <div class="card">
+                        <div class="card-header">
+                            <h6 class="mb-0">
+                                <i class="fas fa-history me-2"></i>Recent Uploads
+                            </h6>
+                        </div>
+                        <div class="card-body">
+                            <div id="historyList"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <!-- Footer -->
+    <footer class="bg-light text-center py-3 mt-5">
+        <div class="container">
+            <small class="text-muted">
+                ResBot Document Assistant &copy; 2024 | 
+                <a href="#" class="text-decoration-none">Help</a> | 
+                <a href="#" class="text-decoration-none">Privacy Policy</a>
+            </small>
+        </div>
+    </footer>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- API Configuration -->
+    <script src="../api-config.js"></script>
+    
+    <!-- Module Scripts -->
+    <script src="js/session.js"></script>
+    <script src="js/models.js"></script>
+    <script src="js/ui.js"></script>
+    <script src="js/upload.js"></script>
+    <script src="js/data-ingestion.js"></script>
+    <!-- Application Initialization -->
+    <script>
+        // Global manager instances
+        let sessionManager, modelManager, uiManager, uploadManager, dataIngestionManager;
+        // Utility functions
+        function clearAll() {
+            if (uiManager) uiManager.clearSelectedFiles();
+            const projectNameInput = document.getElementById('projectNameInput');
+            if (projectNameInput) projectNameInput.value = '';
+            
+            const processingStatus = document.getElementById('processingStatus');
+            if (processingStatus) processingStatus.style.display = 'none';
+        }
+        function logout() {
+            if (sessionManager) {
+                sessionManager.logout();
+            } else {
+                window.location.href = '../login.html';
+            }
+        }
+        // Initialize application when DOM is loaded
+        document.addEventListener('DOMContentLoaded', async function() {
+            console.log('🚀 Initializing Document Ingestion Application...');
+            try {
+                // Initialize managers
+                sessionManager = new SessionManager();
+                modelManager = new ModelManager();
+                uiManager = new UIManager(sessionManager, modelManager);
+                uploadManager = new UploadManager(sessionManager, uiManager);
+                dataIngestionManager = new DataIngestionManager(sessionManager, modelManager, uiManager);
+                // Make managers globally available
+                window.sessionManager = sessionManager;
+                window.modelManager = modelManager;
+                window.uiManager = uiManager;
+                window.uploadManager = uploadManager;
+                window.dataIngestionManager = dataIngestionManager;
+                // Validate session
+                const isValid = await sessionManager.validateSession();
+                if (!isValid) {
+                    console.warn('⚠️ Invalid session, redirecting to login...');
+                    window.location.href = '../login.html';
+                    return;
+                }
+                // Update user info
+                sessionManager.updateUserInfo();
+                // Load embedding models
+                console.log('📚 Loading embedding models...');
+                await modelManager.loadEmbeddingModels();
+                // Initialize UI event handlers
+                uiManager.initializeEventListeners();
+                // Setup project name input handler
+                const projectNameInput = document.getElementById('projectNameInput');
+                if (projectNameInput) {
+                    projectNameInput.addEventListener('input', function() {
+                        uiManager.updateUploadButtonState();
+                        
+                        // Auto-load project files when project name is entered
+                        const projectName = this.value.trim();
+                        if (projectName.length >= 3) {
+                            clearTimeout(this.loadProjectTimeout);
+                            this.loadProjectTimeout = setTimeout(() => {
+                                uiManager.loadProjectFiles();
+                            }, 1000);
+                        }
+                    });
+                }
+                // Setup embedding model selection handler
+                const embeddingModelSelect = document.getElementById('embeddingModelSelect');
+                if (embeddingModelSelect) {
+                    embeddingModelSelect.addEventListener('change', function() {
+                        const selectedModel = this.value;
+                        if (selectedModel) {
+                            console.log('🤖 Selected embedding model:', selectedModel);
+                        }
+                        uiManager.updateUploadButtonState();
+                    });
+                }
+                console.log('✅ Application initialized successfully!');
+            } catch (error) {
+                console.error('❌ Failed to initialize application:', error);
+                
+                // Show error to user
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="alert alert-danger mt-4">
+                            <h5><i class="fas fa-exclamation-triangle me-2"></i>Initialization Error</h5>
+                            <p>Failed to initialize the application: ${error.message}</p>
+                            <button class="btn btn-outline-danger" onclick="window.location.reload()">
+                                <i class="fas fa-redo me-2"></i>Retry
+                            </button>
+                        </div>
+                    `;
+                }
+            }
+        });
+        // Handle page unload
+        window.addEventListener('beforeunload', function() {
+            if (uploadManager && uploadManager.isUploading) {
+                return 'Uploads are in progress. Are you sure you want to leave?';
+            }
+        });
+        // Global error handler
+        window.addEventListener('error', function(event) {
+            console.error('Global error:', event.error);
+        });
+        // Handle unhandled promise rejections
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+        });
+    </script>
+</body>
+</html>
