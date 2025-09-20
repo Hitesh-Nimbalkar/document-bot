@@ -5,7 +5,7 @@ FROM nginx:alpine
 RUN rm -rf /usr/share/nginx/html/*
 
 # Copy your frontend files (index.html, CSS, JS, etc.)
-COPY . /usr/share/nginx/html
+COPY . /usr/share/nginx/html/
 
 # Expose Nginx default port
 EXPOSE 80

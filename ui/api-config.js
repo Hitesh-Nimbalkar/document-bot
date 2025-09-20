@@ -164,7 +164,7 @@ function logout() {
         console.log('Logging out session:', session.sessionId);
     }
     localStorage.removeItem('documentBot_session');
-    window.location.href = 'login.html';
+    window.location.href = 'index.html';
 }
 /**
  * Check if user is logged in (simple check for dummy login)
