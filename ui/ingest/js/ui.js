@@ -1,4 +1,3 @@
-
 /**
  * UI Management Module
  * Handles form validation, button states, and general UI updates
@@ -11,6 +10,7 @@ class UIManager {
         this.projectFiles = [];
         this.debounceTimer = null;
     }
+
     initializeEventListeners() {
         // Project name input
         const projectNameInput = document.getElementById('projectNameInput');
@@ -18,6 +18,7 @@ class UIManager {
             projectNameInput.addEventListener('input', this.debouncedLoadProjectFiles.bind(this));
             projectNameInput.addEventListener('blur', this.updateUploadButtonState.bind(this));
         }
+
         // File input and drag/drop
         const fileInput = document.getElementById('fileInput');
         const dropZone = document.getElementById('dropZone');
@@ -31,19 +32,23 @@ class UIManager {
             dropZone.addEventListener('drop', this.handleFileDrop.bind(this));
         }
     }
+
     handleFileSelect(event) {
         const files = Array.from(event.target.files);
         this.addFilesToSelection(files);
         this.displaySelectedFiles();
         this.updateUploadButtonState();
     }
+
     handleDragOver(event) {
         event.preventDefault();
         event.currentTarget.classList.add('dragover');
     }
+
     handleDragLeave(event) {
         event.currentTarget.classList.remove('dragover');
     }
+
     handleFileDrop(event) {
         event.preventDefault();
         const dropZone = event.currentTarget;
@@ -54,25 +59,26 @@ class UIManager {
         this.displaySelectedFiles();
         this.updateUploadButtonState();
     }
+
     addFilesToSelection(files) {
         files.forEach(file => {
-            // Check if file already exists
             if (!this.selectedFiles.find(f => f.name === file.name && f.size === file.size)) {
                 this.selectedFiles.push(file);
             }
         });
     }
+
     removeFile(index) {
         this.selectedFiles.splice(index, 1);
         this.displaySelectedFiles();
         this.updateUploadButtonState();
         
-        // Clear file input if no files selected
         if (this.selectedFiles.length === 0) {
             const fileInput = document.getElementById('fileInput');
             if (fileInput) fileInput.value = '';
         }
     }
+
     displaySelectedFiles() {
         const container = document.getElementById('selectedFiles');
         if (!container) return;
@@ -93,6 +99,7 @@ class UIManager {
             </div>
         `).join('');
     }
+
     formatFileSize(bytes) {
         if (bytes === 0) return '0 Bytes';
         const k = 1024;
@@ -100,44 +107,85 @@ class UIManager {
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
     }
+
     updateUploadButtonState() {
         const uploadBtn = document.getElementById('uploadBtn');
-        const projectName = document.getElementById('projectNameInput')?.value.trim();
+        const processDocsBtn = document.getElementById('processDocsBtn');
+
+        const projectName = document.getElementById('projectNameInput')?.value.trim() || "";
         const hasFiles = this.selectedFiles.length > 0;
-        const hasProject = projectName !== '';
-        const hasEmbeddingModel = window.modelManager?.hasSelectedModel() || false;
-        
+        const hasProject = projectName.length >= 3; // at least 3 chars
+        const hasEmbeddingModel = window.modelManager?.hasSelectedModel?.() || false;
+
+        console.log("🔎 [UIManager] updateUploadButtonState", {
+            projectName,
+            hasProject,
+            hasFiles,
+            hasEmbeddingModel
+        });
+
+        // Inline message container
+        let statusMsg = document.getElementById("uploadStatusMsg");
+        if (!statusMsg) {
+            statusMsg = document.createElement("div");
+            statusMsg.id = "uploadStatusMsg";
+            statusMsg.style.marginTop = "6px";
+            statusMsg.style.fontSize = "13px";
+            statusMsg.style.color = "red";
+            const btnContainer = uploadBtn?.parentNode;
+            if (btnContainer) btnContainer.appendChild(statusMsg);
+        }
+
+        const reasons = [];
+        if (!hasProject) reasons.push("Enter a project name (≥ 3 chars)");
+        if (!hasFiles) reasons.push("Select at least one file");
+        if (!hasEmbeddingModel) reasons.push("Choose an embedding model");
+
         if (uploadBtn) {
-            uploadBtn.disabled = !(hasFiles && hasProject && hasEmbeddingModel);
+            if (reasons.length === 0) {
+                uploadBtn.disabled = false;
+                statusMsg.textContent = "";
+                console.log("✅ Upload button ENABLED");
+            } else {
+                uploadBtn.disabled = true;
+                statusMsg.textContent = "⚠️ " + reasons.join(" | ");
+                console.warn("⚠️ Upload button DISABLED →", reasons);
+            }
+        }
+
+        if (processDocsBtn) {
+            if (reasons.length === 0) {
+                processDocsBtn.disabled = false;
+                console.log("✅ Process Documents button ENABLED");
+            } else {
+                processDocsBtn.disabled = true;
+                console.warn("⚠️ Process Documents button DISABLED →", reasons);
+            }
         }
     }
+
     debouncedLoadProjectFiles() {
-        // Clear existing timer
         if (this.debounceTimer) {
             clearTimeout(this.debounceTimer);
         }
-        
-        // Set new timer
         this.debounceTimer = setTimeout(() => {
             const projectName = document.getElementById('projectNameInput')?.value.trim();
             if (projectName) {
                 this.loadProjectFiles(projectName);
             } else {
-                // Clear project files if no project name
                 this.displayProjectFiles([]);
             }
-        }, 500); // 500ms delay
+        }, 500);
     }
+
     async loadProjectFiles(projectName) {
         try {
             console.log(`📁 Loading files for project: ${projectName}`);
-            
             const currentSession = window.sessionManager?.getSession();
             if (!currentSession?.sessionId) {
                 console.warn('No valid session for loading project files');
                 return;
             }
-            // Build request payload
             const payload = {
                 project_name: projectName,
                 session_id: currentSession.sessionId,
@@ -166,6 +214,7 @@ class UIManager {
             this.displayProjectFiles([]);
         }
     }
+
     displayProjectFiles(files) {
         const existingFilesSection = document.getElementById('existingFilesSection');
         const filesList = document.getElementById('filesList');
@@ -198,6 +247,7 @@ class UIManager {
             `;
         }).join('');
     }
+
     getFileIcon(extension) {
         const iconMap = {
             'pdf': 'pdf',
@@ -210,15 +260,16 @@ class UIManager {
         };
         return iconMap[extension] || 'txt';
     }
+
     showError(message) {
-        // You can implement a more sophisticated error display system here
         console.error('UI Error:', message);
-        alert(message); // Simple fallback
+        alert(message);
     }
+
     showSuccess(message) {
         console.log('UI Success:', message);
-        // Implement success message display
     }
+
     resetUploadForm() {
         this.selectedFiles = [];
         this.displaySelectedFiles();
@@ -235,6 +286,7 @@ class UIManager {
         
         this.updateUploadButtonState();
     }
+
     clearSelectedFiles() {
         this.selectedFiles = [];
         this.displaySelectedFiles();
@@ -249,7 +301,6 @@ class UIManager {
         }
     }
 }
-// Export for use in other modules
-window.UIManager = UIManager;
+
 // Export for use in other modules
 window.UIManager = UIManager;

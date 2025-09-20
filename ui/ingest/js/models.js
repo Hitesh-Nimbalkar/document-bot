@@ -12,7 +12,7 @@ class ModelManager {
     async loadEmbeddingModels() {
         try {
             console.log('📋 Loading embedding models from JSON...');
-            const response = await fetch('../models.json'); // Fixed path - go up one directory
+            const response = await fetch('models.json'); // Fixed path - go up one directory
             
             console.log('🌐 Fetch response status:', response.status, response.statusText);
             

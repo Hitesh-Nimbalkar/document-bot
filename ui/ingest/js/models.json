@@ -1,0 +1,82 @@
+
+{
+  "version": 1,
+  "embeddings": {
+    "titan_v2": {
+      "provider": "aws_bedrock",
+      "model_id": "amazon.titan-embed-text-v2:0",
+      "family": "titan",
+      "context_length": 8000,
+      "vector_size": 1536,
+      "recommended_use": "general text semantic search, RAG",
+      "wrapper": "bedrock_embedding",
+      "default_params": {}
+    },
+    "text_embedding_3_small": {
+      "provider": "openai",
+      "model_name": "text-embedding-3-small",
+      "import_path": "langchain_openai.OpenAIEmbeddings",
+      "secret_name": "openai/api_key",
+      "vector_size": 1536,
+      "context_length": 8191,
+      "recommended_use": "cost-optimized semantic search",
+      "default_params": {
+        "model": "text-embedding-3-small"
+      }
+    },
+    "text_embedding_3_large": {
+      "provider": "openai",
+      "model_name": "text-embedding-3-large",
+      "import_path": "langchain_openai.OpenAIEmbeddings",
+      "secret_name": "openai/api_key",
+      "vector_size": 3072,
+      "context_length": 8191,
+      "recommended_use": "highest quality semantic search",
+      "default_params": {
+        "model": "text-embedding-3-large"
+      }
+    }
+  },
+  "rerankers": {
+    "cohere_rerank_v3": {
+      "provider": "cohere",
+      "model_name": "rerank-english-v3.0",
+      "import_path": "langchain_cohere.CohereRerank",
+      "secret_name": "cohere/api_key",
+      "recommended_use": "re-ranking top-K retrieved passages",
+      "default_params": {
+        "top_n": 5
+      }
+    }
+  },
+  "llms": {
+    "claude_3_5_sonnet": {
+      "provider": "anthropic",
+      "model_name": "claude-3-5-sonnet-20241022",
+      "import_path": "langchain_anthropic.ChatAnthropic",
+      "secret_name": "anthropic/api_key",
+      "context_length": 200000,
+      "max_output_tokens": 8192,
+      "modality": ["text"],
+      "recommended_use": "complex reasoning, coding, analysis",
+      "default_params": {
+        "model": "claude-3-5-sonnet-20241022",
+        "temperature": 0.1
+      }
+    },
+    "gpt_4o": {
+      "provider": "openai",
+      "model_name": "gpt-4o",
+      "import_path": "langchain_openai.ChatOpenAI",
+      "secret_name": "openai/api_key",
+      "context_length": 128000,
+      "max_output_tokens": 4096,
+      "modality": ["text", "vision"],
+      "recommended_use": "general chat, multimodal tasks",
+      "default_params": {
+        "model": "gpt-4o",
+        "temperature": 0.1
+      }
+    }
+  }
+}
