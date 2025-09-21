@@ -223,10 +223,10 @@ class SimpleRAGPipeline:
             # ==================================================
             response = {
                 "answer": answer,
-                "sources": sources,
+            #   "sources": sources,
                 "query": query,
-                "total_sources": len(sources),
-                "pipeline_mode": "simple",
+            #    "total_sources": len(sources),
+               # "pipeline_mode": "simple",
                 "success": True
             }
             
