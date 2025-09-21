@@ -344,17 +344,17 @@ class ChatHistory(EnhancedDynamoDBClient):
         except Exception as e:
             logger.error(f"💥 Error updating session metadata for {session_id}: {e}")
             return False
-
 # -----------------------------
 # Chat logging helper
 # -----------------------------
 def log_chat_history(event, payload, role, content, reply_to=None, metadata=None):
     """
-    Enhanced chat logging helper that uses the improved ChatHistory class
-    with better error handling and validation.
+    Enhanced chat logging helper with detailed logging when inputs are missing.
     """
     try:
         chat_history = ChatHistory()
+
+        # Extract identifiers with fallbacks
         project_id = (
             payload.get("project_id")
             or payload.get("project_name")
@@ -363,13 +363,33 @@ def log_chat_history(event, payload, role, content, reply_to=None, metadata=None
         )
         user_id = payload.get("user_id") or event.get("user_id")
         session_id = payload.get("session_id") or event.get("session_id")
-        
-        # Validate required fields
-        if not all([project_id, user_id, session_id]):
-            logger.error("💥 Missing required fields for chat logging")
+
+        # Check for missing required fields
+        missing_fields = []
+        if not project_id:
+            missing_fields.append("project_id")
+        if not user_id:
+            missing_fields.append("user_id")
+        if not session_id:
+            missing_fields.append("session_id")
+        if not role:
+            missing_fields.append("role")
+        if not content:
+            missing_fields.append("content")
+
+        if missing_fields:
+            logger.error(
+                f"💥 Cannot log chat history — missing required field(s): {', '.join(missing_fields)}"
+            )
+            logger.debug(f"📝 event={event}, payload={payload}")
             return None
-            
+
+        # Generate ID and log
         message_id = str(uuid.uuid4())
+        logger.debug(
+            f"📝 Logging message to session={session_id}, role={role}, project={project_id}, user={user_id}"
+        )
+
         return chat_history.append_message(
             project_id=project_id,
             user_id=user_id,
@@ -380,17 +400,24 @@ def log_chat_history(event, payload, role, content, reply_to=None, metadata=None
             reply_to=reply_to,
             metadata=metadata,
         )
-        
+
     except Exception as e:
-        logger.error(f"💥 Error in log_chat_history: {e}")
+        logger.error(f"💥 Error in log_chat_history: {e}", exc_info=True)
         return None
+
+
+# -----------------------------
 # Helper to simplify logging a model-generated assistant message
+# -----------------------------
 def log_model_chat_message(event, payload, content, model_meta, reply_to=None):
     """
     Log assistant message with raw model_meta attached per message only.
+    Includes detailed validation and logging.
     """
     try:
         chat_history = ChatHistory()
+
+        # Extract identifiers
         project_id = (
             payload.get("project_id")
             or payload.get("project_name")
@@ -399,9 +426,29 @@ def log_model_chat_message(event, payload, content, model_meta, reply_to=None):
         )
         user_id = payload.get("user_id") or event.get("user_id")
         session_id = payload.get("session_id") or event.get("session_id")
-        if not all([project_id, user_id, session_id]):
-            logger.error("💥 Missing required fields for model chat logging")
+
+        # Validation
+        missing_fields = []
+        if not project_id:
+            missing_fields.append("project_id")
+        if not user_id:
+            missing_fields.append("user_id")
+        if not session_id:
+            missing_fields.append("session_id")
+        if not content:
+            missing_fields.append("content")
+
+        if missing_fields:
+            logger.error(
+                f"💥 Cannot log model chat message — missing field(s): {', '.join(missing_fields)}"
+            )
+            logger.debug(f"📝 event={event}, payload={payload}, model_meta={model_meta}")
             return None
+
+        logger.debug(
+            f"🤖 Logging assistant message for session={session_id}, project={project_id}, user={user_id}"
+        )
+
         return chat_history.append_message(
             project_id=project_id,
             user_id=user_id,
@@ -409,8 +456,9 @@ def log_model_chat_message(event, payload, content, model_meta, reply_to=None):
             role="assistant",
             content=content,
             reply_to=reply_to,
-            model_meta=model_meta
+            model_meta=model_meta,
         )
+
     except Exception as e:
-        logger.error(f"💥 Error in log_model_chat_message: {e}")
+        logger.error(f"💥 Error in log_model_chat_message: {e}", exc_info=True)
         return None

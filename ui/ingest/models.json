@@ -1,4 +1,3 @@
-
 {
   "version": 1,
   "embeddings": {
@@ -11,30 +10,6 @@
       "recommended_use": "general text semantic search, RAG",
       "wrapper": "bedrock_embedding",
       "default_params": {}
-    },
-    "text_embedding_3_small": {
-      "provider": "openai",
-      "model_name": "text-embedding-3-small",
-      "import_path": "langchain_openai.OpenAIEmbeddings",
-      "secret_name": "openai/api_key",
-      "vector_size": 1536,
-      "context_length": 8191,
-      "recommended_use": "cost-optimized semantic search",
-      "default_params": {
-        "model": "text-embedding-3-small"
-      }
-    },
-    "text_embedding_3_large": {
-      "provider": "openai",
-      "model_name": "text-embedding-3-large",
-      "import_path": "langchain_openai.OpenAIEmbeddings",
-      "secret_name": "openai/api_key",
-      "vector_size": 3072,
-      "context_length": 8191,
-      "recommended_use": "highest quality semantic search",
-      "default_params": {
-        "model": "text-embedding-3-large"
-      }
     }
   },
   "rerankers": {

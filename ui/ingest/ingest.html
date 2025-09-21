@@ -1,4 +1,6 @@
 
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -184,7 +186,7 @@
                 sessionManager = new SessionManager();
                 modelManager = new ModelManager();
                 uiManager = new UIManager(sessionManager, modelManager);
-                uploadManager = new UploadManager(sessionManager, uiManager);
+                uploadManager = new UploadManager(sessionManager, modelManager, uiManager);
                 dataIngestionManager = new DataIngestionManager(sessionManager, modelManager, uiManager);
                 // Make managers globally available
                 window.sessionManager = sessionManager;
@@ -206,6 +208,9 @@
                 await modelManager.loadEmbeddingModels();
                 // Initialize UI event handlers
                 uiManager.initializeEventListeners();
+                
+                // Update button states on page load (buttons stay enabled)
+                uiManager.updateUploadButtonState();
                 // Setup project name input handler
                 const projectNameInput = document.getElementById('projectNameInput');
                 if (projectNameInput) {
@@ -269,3 +274,4 @@
     </script>
 </body>
 </html>
+

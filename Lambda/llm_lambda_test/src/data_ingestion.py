@@ -1,4 +1,7 @@
 
+
+
+
 import os
 import boto3
 import hashlib
@@ -25,13 +28,12 @@ class IngestionPayload(BaseModel):
     session_id: str
     project_name: str
     user_id: str
-    doc_loc: Optional[str] = None
-    doc_locs: Optional[List[str]] = None
-    ingest_source: Optional[str] = None
-    source_path: Optional[str] = None
-    embedding_provider: Optional[str] = None
-    embedding_model: Optional[str] = None
-
+    doc_loc: str
+    doc_locs: List[str]
+    ingest_source: str
+    source_path: str
+    embedding_provider: str
+    embedding_model: str
 # ---------------------------
 # Ingestion Response
 # ---------------------------
@@ -45,13 +47,9 @@ class IngestionResponse(BaseModel):
     embedding_provider: str
     embedding_model: str
     metadata: Optional[Dict[str, Any]] = None
-
 class BatchIngestionResponse(BaseModel):
     results: List[IngestionResponse]
     summary: Optional[Dict[str, Any]] = None
-
-
-
 class PDFIngestionPipeline:
     def __init__(self, embedding_provider: str = "bedrock", embedding_model: Optional[str] = None):
         """
@@ -59,17 +57,14 @@ class PDFIngestionPipeline:
         """
         self.vector_db = QdrantVectorDB()
         self.metadata_manager = MetadataManager(vector_db_client=self.vector_db)
-
         # Default embedding model if not provided
         if not embedding_model:
             if embedding_provider == "bedrock":
                 embedding_model = os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
             else:
                 raise ValueError(f"Unsupported embedding provider: {embedding_provider}")
-
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_model
-
         # Register provider + model with ModelLoader
         self.model_loader = ModelLoader()
         self.model_loader.register(
@@ -82,81 +77,97 @@ class PDFIngestionPipeline:
         )
         logger.info(f"📦 PDFIngestionPipeline initialized | provider={embedding_provider}, model={embedding_model}")
 
-    def process_and_store(self, file_bytes: bytes, metadata: Dict[str, Any]) -> bool:
+
+    def process_and_store(self, file_bytes: bytes, metadata: Dict[str, Any]) -> tuple[bool, Dict[str, Any]]:
         """
         Extract text, chunk, embed, and store in Qdrant.
         Uses ModelLoader (embed returns (embedding, meta)).
+        Returns: (success: bool, emb_meta: Dict[str, Any])
         """
+        # Initialize aggregated embedding metadata
+        aggregated_emb_meta = {
+            "total_chunks": 0,
+            "total_cost": 0.0,
+            "total_tokens_in": 0,
+            "total_tokens_out": 0,
+            "model": self.embedding_model,
+            "provider": self.embedding_provider,
+            "success": False
+        }
+        
         try:
             doc_id = metadata.get("document_id")
             logger.info(
                 f"📥 Starting processing for doc_id={doc_id} "
                 f"(model={self.embedding_model}, provider={self.embedding_provider})"
             )
-
             # 1. Extract text
             filename = metadata.get("filename", "")
             text = extract_text(file_bytes, filename)
             if not text.strip():
                 logger.warning(f"⚠️ No text extracted for doc_id={doc_id}")
-                return False
+                return False, aggregated_emb_meta
             logger.debug(f"📝 Extracted text length={len(text)} characters")
-
             # 2. Chunk
             chunks = split_into_chunks(text, chunk_size=500)
             logger.info(f"✂️ Split text into {len(chunks)} chunks for doc_id={doc_id}")
             if not chunks:
-                return False
-
+                return False, aggregated_emb_meta
             # 3. Embeddings via model loader
             embeddings_to_upsert: List[Dict[str, Any]] = []
             vector_dim: Optional[int] = None
-
             for idx, chunk in enumerate(chunks):
                 try:
                     logger.debug(
                         f"🔎 Embedding chunk {idx+1}/{len(chunks)} "
                         f"(len={len(chunk)}) provider={self.embedding_provider} model={self.embedding_model}"
                     )
-                    embedding, emb_meta = self.model_loader.embed(chunk, model_id=self.embedding_model)
-
+                    embedding, chunk_emb_meta = self.model_loader.embed(chunk, model_id=self.embedding_model)
                     if not embedding:
                         logger.error(f"❌ Empty embedding returned for chunk {idx}")
-                        return False
-
+                        return False, aggregated_emb_meta
                     if vector_dim is None:
                         vector_dim = len(embedding)
                         logger.info(f"📐 Embedding dimension={vector_dim} (model={self.embedding_model})")
-
                     embeddings_to_upsert.append({
                         "id": str(uuid.uuid4()),
                         "embedding": embedding,
                         "metadata": {**metadata, "chunk_id": str(idx)},
                         "text": chunk,
                     })
-
-                    if emb_meta.get("cost"):
-                        logger.debug(f"💲 Embedding cost chunk {idx+1}: {emb_meta['cost']}")
-
+                    # Aggregate metadata from this chunk
+                    aggregated_emb_meta["total_chunks"] += 1
+                    if chunk_emb_meta.get("cost"):
+                        aggregated_emb_meta["total_cost"] += chunk_emb_meta["cost"]
+                        logger.debug(f"💲 Embedding cost chunk {idx+1}: {chunk_emb_meta['cost']}")
+                    
+                    if chunk_emb_meta.get("usage"):
+                        usage = chunk_emb_meta["usage"]
+                        aggregated_emb_meta["total_tokens_in"] += usage.get("tokens_in", 0)
+                        aggregated_emb_meta["total_tokens_out"] += usage.get("tokens_out", 0)
                 except Exception as e:
                     logger.error(f"❌ Failed embedding chunk {idx}: {e}")
-                    return False , emb_meta
-
+                    return False, aggregated_emb_meta
             # 4. Upsert into Qdrant
             success = self.vector_db.upsert_embeddings(embeddings_to_upsert)
             if not success:
                 logger.error(f"❌ Failed Qdrant upsert for doc_id={doc_id}")
-                return False
-
+                return False, aggregated_emb_meta
             logger.info(
                 f"✅ Successfully ingested {len(chunks)} chunks into Qdrant "
                 f"(doc_id={doc_id}, provider={self.embedding_provider}, model={self.embedding_model})"
             )
-            return True
+            
+            # Mark success and add final summary to metadata
+            aggregated_emb_meta["success"] = True
+            aggregated_emb_meta["chunks_processed"] = len(chunks)
+            if aggregated_emb_meta["total_cost"] > 0:
+                logger.info(f"💰 Total embedding cost: ${aggregated_emb_meta['total_cost']:.6f}")
+            
+            return True, aggregated_emb_meta
         except Exception as e:
             logger.error(f"💥 Error in PDFIngestionPipeline for doc_id={metadata.get('document_id')}: {e}", exc_info=True)
-            return False
-
+            return False, aggregated_emb_meta
 
 
 def move_file_s3_temp_to_documents(s3_bucket: str, temp_key: str, documents_key: str):
@@ -168,12 +179,10 @@ def move_file_s3_temp_to_documents(s3_bucket: str, temp_key: str, documents_key:
     except ClientError as e:
         logger.error(f"💥 S3 move failed: {str(e)}", exc_info=True)
         raise CustomException(f"Error moving file in S3: {str(e)}")
-
 def compute_content_hash(file_bytes: bytes) -> str:
     digest = hashlib.sha256(file_bytes).hexdigest()
     logger.debug(f"🔑 Computed content hash={digest}")
     return digest
-
 def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionResponse]:
     """
     Validate payload, fetch file(s) from S3 temp, compute hash, check metadata,
@@ -190,7 +199,14 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
     if embedding_provider not in allowed_providers:
         logger.error(f"❌ Unsupported embedding_provider '{embedding_provider}' (allowed={allowed_providers})")
         return BatchIngestionResponse(
-            results=[IngestionResponse(statusCode=400, body=f"Unsupported embedding_provider: {embedding_provider}")],
+            results=[IngestionResponse(
+                statusCode=400, 
+                body=f"Unsupported embedding_provider: {embedding_provider}",
+                s3_bucket="",
+                s3_key="",
+                embedding_provider=embedding_provider,
+                embedding_model=""
+            )],
             summary={"total": 1, "succeeded": 0, "duplicates": 0, "unsupported": 0, "errors": 1},
         )
     embedding_model = payload.get("embedding_model")
@@ -200,7 +216,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
         else:  # placeholder for future providers
             embedding_model = "default-model"
         logger.info(f"ℹ️ Using default embedding model '{embedding_model}' for provider '{embedding_provider}'")
-
     # Initialize pipeline with provider + model
     pipeline = PDFIngestionPipeline(
         embedding_provider=embedding_provider,
@@ -259,6 +274,8 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                         body=f"Unsupported file type: {doc_loc}",
                         s3_bucket=s3_bucket,
                         s3_key=temp_s3_key,
+                        embedding_provider=embedding_provider,
+                        embedding_model=embedding_model,
                     )
                 )
                 continue
@@ -319,6 +336,8 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                         body=f"Document already fully processed: {doc_loc}",
                         s3_bucket=s3_bucket,
                         s3_key=doc_s3_key,
+                        embedding_provider=embedding_provider,
+                        embedding_model=embedding_model,
                     )
                 )
                 continue
@@ -379,6 +398,8 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                         body=f"Embedding pipeline failed: {doc_loc}",
                         s3_bucket=s3_bucket,
                         s3_key=doc_s3_key,
+                        embedding_provider=embedding_provider,
+                        embedding_model=embedding_model,
                     )
                 )
                 continue
@@ -433,6 +454,9 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
                     statusCode=500,
                     body=f"Unexpected error ingesting {doc_loc}: {str(e)}",
                     s3_bucket=s3_bucket,
+                    s3_key=getattr(locals(), 'doc_s3_key', getattr(locals(), 'temp_s3_key', "")),
+                    embedding_provider=embedding_provider,
+                    embedding_model=embedding_model,
                 )
             )
     summary = {
@@ -467,5 +491,6 @@ def ingest_document(payload: dict) -> Union[IngestionResponse, BatchIngestionRes
     except Exception as e:
         logger.warning(f"⚠️ Failed to log ingestion summary to chat history: {e}")
     return BatchIngestionResponse(results=results, summary=summary)
+
 
 

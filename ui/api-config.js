@@ -1,25 +1,26 @@
 // ====================================
-// API CONFIGURATION FOR DOCUMENT BOT FRONTEND
+// API CONFIGURATION
 // ====================================
 
-// Auto-detect environment: if UI served via Docker (hostname != localhost),
-// use "lambda:8080". If UI opened in host browser, use "localhost:9000".
-const isDockerEnv = window.location.hostname !== "localhost";
+// Detect environment
+const BASE_URL =
+    window?.API_BASE_URL ||                                  // injected at runtime (e.g. Docker env/proxy)
+    (typeof process !== "undefined" && process.env?.API_BASE_URL) || 
+    "http://localhost:4000";                                 // default → proxy (recommended for browser)
 
-const API_CONFIG = {
-    BASE_URL: isDockerEnv
-        ? "http://lambda:8080/2015-03-31/functions/function/invocations"   // UI container → Lambda
-        : "http://localhost:9000/2015-03-31/functions/function/invocations" // Browser → Lambda
-};
+// If calling Lambda emulator directly, uncomment this:
+// const INVOKE_PATH = "/2015-03-31/functions/function/invocations";
+// const BASE_URL = "http://localhost:9000" + INVOKE_PATH;
+
+console.log("🌐 API Base URL:", BASE_URL);
 
 // ====================================
-// API ENDPOINTS - Routes are passed in body, not appended to URL
+// API ENDPOINTS
 // ====================================
-const API_ENDPOINTS = {
-    USER_MANAGEMENT: "/user_management",
+window.API_ENDPOINTS = {
     GET_PRESIGNED_URL: "/get_presigned_url",
-    INGEST_DATA: "/ingest_data",
     LIST_PROJECT_FILES: "/list_project_files",
+    INGEST_DATA: "/ingest_data",
     RAG_QUERY: "/rag_query",
     GET_MODELS_CONFIG: "/get_models_config",
     UPLOAD_STATUS: "/upload_status",
@@ -28,33 +29,21 @@ const API_ENDPOINTS = {
     PROJECT_MANAGEMENT: "/project_management",
     DOCUMENT_SEARCH: "/document_search",
     EXPORT_DATA: "/export_data",
+    USER_MANAGEMENT: "/user_management",
     ANALYTICS_DASHBOARD: "/analytics_dashboard",
     NOTIFICATIONS: "/notifications",
-    HEALTH: "/health",
-    ROUTES: "/routes"
+    HEALTH: "/health"
 };
 
 // ====================================
-// API UTILITY FUNCTIONS
+// API WRAPPER
 // ====================================
-
-/**
- * Always return the Lambda invocation URL
- */
-function buildApiUrl() {
-    return API_CONFIG.BASE_URL;
-}
-
-/**
- * Simplified API request wrapper
- * Automatically wraps payload in { route, payload }
- */
 async function makeApiRequest(endpoint, payload = {}, options = {}) {
-    const url = buildApiUrl();
+    const url = BASE_URL;
 
-    const requestBody = {
+    const body = {
         route: endpoint,
-        payload: payload
+        payload
     };
 
     const defaultOptions = {
@@ -63,13 +52,12 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
             "Content-Type": "application/json",
             ...getAuthHeaders()
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify(body),
         ...options
     };
 
     try {
-        console.log(`📡 API Request → ${url}`, requestBody);
-
+        console.log(`📡 Request → ${endpoint}`, payload);
         const response = await fetch(url, defaultOptions);
 
         if (!response.ok) {
@@ -77,24 +65,22 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
         }
 
         const data = await response.json();
-        console.log("✅ API Response:", data);
         return data;
-
     } catch (error) {
-        console.error("❌ API Request failed:", error);
+        console.error(`❌ API request failed: ${endpoint}`, error);
         throw error;
     }
 }
 
 // ====================================
-// AUTH & SESSION HELPERS
+// AUTH HELPERS
 // ====================================
 function getAuthHeaders() {
     const session = getSession();
-    if (session && session.sessionId) {
+    if (session?.sessionId) {
         return {
             "X-Session-ID": session.sessionId,
-            "X-User-ID": session.user ? session.user.username : "anonymous"
+            "X-User-ID": session.user?.username || "anonymous"
         };
     }
     return {};
@@ -103,62 +89,17 @@ function getAuthHeaders() {
 function getSession() {
     try {
         const sessionData = localStorage.getItem("documentBot_session");
-        if (sessionData) {
-            return JSON.parse(sessionData);
-        }
-    } catch (error) {
-        console.error("Error reading session:", error);
+        return sessionData ? JSON.parse(sessionData) : null;
+    } catch (err) {
+        console.error("Error parsing session:", err);
         localStorage.removeItem("documentBot_session");
-    }
-    return null;
-}
-
-function generateSessionId() {
-    const timestamp = Date.now().toString(36);
-    const randomPart = Math.random().toString(36).substring(2, 15);
-    return `session_${timestamp}_${randomPart}`;
-}
-
-function saveSession(userData) {
-    try {
-        const sessionData = {
-            ...userData,
-            sessionId: generateSessionId(),
-            loginTime: Date.now()
-        };
-        localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
-        console.log("Session created with ID:", sessionData.sessionId);
-    } catch (error) {
-        console.error("Error saving session:", error);
-    }
-}
-
-function getSessionId() {
-    const session = getSession();
-    return session ? session.sessionId : null;
-}
-
-function logout() {
-    const session = getSession();
-    if (session && session.sessionId) {
-        console.log("Logging out session:", session.sessionId);
-    }
-    localStorage.removeItem("documentBot_session");
-    window.location.href = "index.html";
-}
-
-function requireAuth() {
-    const session = getSession();
-    if (!session || !session.isLoggedIn) {
-        window.location.href = "login.html";
         return null;
     }
-    return session;
 }
 
 // ====================================
-// ERROR HANDLING
+// GLOBAL ERROR HANDLING
 // ====================================
-window.addEventListener("unhandledrejection", function(event) {
-    console.error("Unhandled promise rejection:", event.reason);
-});
+window.addEventListener("unhandledrejection", e =>
+    console.error("Unhandled promise rejection:", e.reason)
+);
