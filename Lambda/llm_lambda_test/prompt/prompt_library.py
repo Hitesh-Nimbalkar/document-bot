@@ -30,16 +30,26 @@ class RerankedResults(BaseModel):
 # =============================================================================
 # PROMPTS
 # =============================================================================
+
+
 DOCUMENT_ANALYSIS_PROMPT = """
-You are an expert document analyst.
-Analyze the following document and extract key insights, summary, and any important metadata.
+You are an expert document analyst. Analyze the following document and extract key insights, summary, and metadata.
+Return your analysis as a JSON object with the following structure:
+{
+  "title": "Document title (if available)",
+  "author": "Author name (if available)",
+  "date_created": "Creation date (if available)",
+  "document_type": "Type of document (e.g., report, manual, article)",
+  "language": "Document language",
+  "num_pages": number_of_pages,
+  "keywords": ["keyword1", "keyword2", "keyword3"],
+  "summary": "Concise summary of the document",
+  "additional_metadata": {"key": "value"}
+}
 Document:
 {document_text}
-Instructions:
-- Provide a concise summary.
-- List key points or findings.
-- Extract any relevant metadata (e.g., author, date, topic) if available.
 """
+
 DOCUMENT_COMPARATOR_PROMPT = """
 You are an expert at comparing documents.
 Compare the following two documents and provide:

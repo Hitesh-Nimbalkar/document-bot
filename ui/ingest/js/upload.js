@@ -1,6 +1,8 @@
 
 
 
+
+
 /**
  * Upload Management Module
  * Handles direct S3 uploads via Lambda (Base64 encoded)
@@ -89,6 +91,13 @@ class UploadManager {
         if (!this.sessionManager?.isValidSession()) {
             throw new Error("No valid session. Please login again.");
         }
+        
+        // Check file size before processing (30MB limit to account for base64 exncoding)
+        const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB in bytes
+        if (file.size > MAX_FILE_SIZE) {
+            throw new Error(`File "${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum allowed size is 30MB.`);
+        }
+        
         // Convert file → Base64
         const fileBase64 = await this.readFileAsBase64(file);
         
@@ -213,5 +222,6 @@ class UploadManager {
 }
 // Export globally
 window.UploadManager = UploadManager;
+
 
 

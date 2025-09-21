@@ -198,7 +198,6 @@ class BedrockProvider:
     ) -> tuple[str, Dict[str, Any]]:
         if not isinstance(prompt, str) or not prompt.strip():
             raise GenerationError("Prompt must be a non-empty string")
-
         model_id = model_id or self.llm_model
         if "anthropic" in model_id:
             payload = {
@@ -208,12 +207,20 @@ class BedrockProvider:
                 "messages": [{"role": "user", "content": [{"type": "text", "text": prompt}]}],
                 **params,
             }
+        elif "titan" in model_id:
+            payload = {
+                "inputText": prompt,
+                "textGenerationConfig": {
+                    "maxTokenCount": max_tokens,
+                    "temperature": temperature,
+                    "topP": params.get("top_p", 0.9),
+                    "stopSequences": params.get("stop_sequences", [])
+                }
+            }
         else:
             payload = {"inputText": prompt, "maxTokens": max_tokens, "temperature": temperature, **params}
-
         try:
             body = self._invoke_model(model_id=model_id, payload=payload, op="generate")
-
             # Normalize output
             if "outputText" in body:
                 output = body["outputText"]
@@ -227,7 +234,6 @@ class BedrockProvider:
                 output = body["output"]["text"]
             else:
                 raise GenerationError(f"Unrecognized response format: {body}")
-
             usage = {
                 "tokens_in": self._tokens(prompt),
                 "tokens_out": self._tokens(str(output)),

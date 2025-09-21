@@ -1,4 +1,6 @@
 
+
+
 """metadata_enhancer.py
 Unified metadata filtering + re-ranking utilities.
 Contains:
@@ -135,8 +137,8 @@ class MetadataFilterEngine:
         )
 class MetadataAwareReranker:
     """Enhanced re-ranking that considers both relevance and metadata factors"""
-    def __init__(self):
-        self.analyzer = DocumentAnalyzer()
+    def __init__(self, model_loader=None):
+        self.analyzer = DocumentAnalyzer(loader=model_loader)
         self.current_user_id: str | None = None  # can be injected at runtime
         logger.info("📊 MetadataAwareReranker initialized (improved logic)")
     def rerank_basic(self, query: str, results: List[Dict], top_k: int = 5,
@@ -215,3 +217,4 @@ class MetadataAwareReranker:
             context_info=data.context_info,
             top_k=data.top_k,
         )
+
