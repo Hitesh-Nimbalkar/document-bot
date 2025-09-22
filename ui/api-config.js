@@ -1,19 +1,21 @@
-
-
 // ====================================
 // API CONFIGURATION
 // ====================================
+
 // Detect environment
 const BASE_URL =
     window?.API_BASE_URL ||                                  // injected at runtime (e.g. Docker env/proxy)
     (typeof process !== "undefined" && process.env?.API_BASE_URL) || 
-    "http://localhost:4000";                                 // default → proxy (recommended for browser)
+    "http://localhost:4000";                                 // default → local dev
+
 // If calling Lambda emulator directly, uncomment this:
 // const INVOKE_PATH = "/2015-03-31/functions/function/invocations";
 // const BASE_URL = "http://localhost:9000" + INVOKE_PATH;
+
 console.log("🌐 API Base URL:", BASE_URL);
+
 // ====================================
-// API ENDPOINTS
+// API ENDPOINTS (paths only)
 // ====================================
 window.API_ENDPOINTS = {
     GET_PRESIGNED_URL: "/get_presigned_url",
@@ -33,15 +35,19 @@ window.API_ENDPOINTS = {
     NOTIFICATIONS: "/notifications",
     HEALTH: "/health"
 };
+
 // ====================================
 // API WRAPPER
 // ====================================
 async function makeApiRequest(endpoint, payload = {}, options = {}) {
-    const url = BASE_URL;
+    // ✅ Append endpoint path to base URL
+    const url = BASE_URL + endpoint;
+
     const body = {
-        route: endpoint,
+        route: endpoint,   // ✅ keep "route" in body (Lambda handler expects it)
         payload
     };
+
     const defaultOptions = {
         method: "POST",
         headers: {
@@ -51,12 +57,15 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
         body: JSON.stringify(body),
         ...options
     };
+
     try {
-        console.log(`📡 Request → ${endpoint}`, payload);
+        console.log(`📡 Request → ${url}`, payload);
         const response = await fetch(url, defaultOptions);
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
+
         const data = await response.json();
         return data;
     } catch (error) {
@@ -64,6 +73,7 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
         throw error;
     }
 }
+
 // ====================================
 // AUTH HELPERS
 // ====================================
@@ -77,6 +87,7 @@ function getAuthHeaders() {
     }
     return {};
 }
+
 function getSession() {
     try {
         const sessionData = localStorage.getItem("documentBot_session");
@@ -87,10 +98,10 @@ function getSession() {
         return null;
     }
 }
+
 // ====================================
 // GLOBAL ERROR HANDLING
 // ====================================
 window.addEventListener("unhandledrejection", e =>
     console.error("Unhandled promise rejection:", e.reason)
 );
-

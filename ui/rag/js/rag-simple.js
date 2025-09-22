@@ -102,19 +102,63 @@ function displayResults(response) {
     } else if (response.body) {
         data = response.body;
     }
-    
-    // Show answer
-    document.getElementById('answerText').innerHTML = data.answer || 'No answer provided';
-    
-    // Show metrics
+
+    // ✅ Show answer
+    const answerSummary = data.answer && data.answer.summary 
+        ? data.answer.summary 
+        : 'No answer provided';
+    document.getElementById('answerText').innerHTML = answerSummary;
+
+    // ✅ Show query details
+    if (document.getElementById('originalQuery')) {
+        document.getElementById('originalQuery').textContent = data.query || '';
+    }
+    if (document.getElementById('cleanedQuery')) {
+        document.getElementById('cleanedQuery').textContent = data.clean_query || '';
+    }
+    if (document.getElementById('detectedIntent')) {
+        document.getElementById('detectedIntent').textContent = data.detected_intent || 'UNKNOWN';
+    }
+    if (document.getElementById('pipelineMode')) {
+        document.getElementById('pipelineMode').textContent = data.pipeline_mode || '';
+    }
+
+    // ✅ Show metrics
+    const perf = data.performance || {};
     document.getElementById('processingTime').textContent = 
-        data.processing_time_seconds ? `${data.processing_time_seconds}s` : 'N/A';
+        perf.total_time ? `${perf.total_time}s` : 'N/A';
     document.getElementById('documentsFound').textContent = 
-        data.source_documents ? data.source_documents.length : 0;
+        data.total_sources || 0;
+    if (document.getElementById('intentTime')) {
+        document.getElementById('intentTime').textContent = perf.intent_detection_time || '0';
+    }
+    if (document.getElementById('embeddingTime')) {
+        document.getElementById('embeddingTime').textContent = perf.embedding_time || '0';
+    }
+    if (document.getElementById('searchTime')) {
+        document.getElementById('searchTime').textContent = perf.search_time || '0';
+    }
+    if (document.getElementById('contextTime')) {
+        document.getElementById('contextTime').textContent = perf.context_time || '0';
+    }
+    if (document.getElementById('generationTime')) {
+        document.getElementById('generationTime').textContent = perf.generation_time || '0';
+    }
+    if (document.getElementById('perfBreakdown')) {
+        document.getElementById('perfBreakdown').textContent = perf.breakdown || '';
+    }
     document.getElementById('metricsRow').style.display = 'block';
-    
-    // Show sources
-    const sources = data.source_documents || [];
+
+    // ✅ Show cost
+    if (data.cost_usd && document.getElementById('costInfo')) {
+        document.getElementById('costInfo').textContent = `$${data.cost_usd.toFixed(4)}`;
+        document.getElementById('costRow').style.display = 'block';
+    } else if (document.getElementById('costRow')) {
+        document.getElementById('costRow').style.display = 'none';
+    }
+
+    // ✅ Show sources
+    const sources = data.sources || [];
     if (sources.length > 0) {
         document.getElementById('sourceDocuments').innerHTML = formatSources(sources);
         document.getElementById('sourceSection').style.display = 'block';
@@ -125,7 +169,7 @@ function displayResults(response) {
 
 function formatSources(sources) {
     return sources.map((source, index) => {
-        const fileName = source.file_name || `Document ${index + 1}`;
+        const fileName = source.filename || `Document ${index + 1}`;
         const content = source.content || 'No content';
         const score = source.score ? `(${Math.round(source.score * 100)}%)` : '';
         
