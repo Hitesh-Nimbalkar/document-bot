@@ -1,6 +1,5 @@
 
 
-
 # rag_simple.py
 """
 Simple RAG Pipeline for Testing
@@ -17,6 +16,7 @@ No complex features:
 - No enhanced context building
 """
 from typing import Any, Dict, List, Optional
+import time
 from utils.logger import CustomLogger
 from utils.model_loader import ModelLoader
 # Remove get_embeddings import since it's broken
@@ -28,14 +28,22 @@ logger = CustomLogger(__name__)
 class SimpleRAGPipeline:
     """Simple RAG Pipeline for testing semantic search functionality"""
     def __init__(self, project_name: str, model_loader: Optional[ModelLoader] = None):
-        """Initialize simple RAG pipeline"""
+        """Initialize simple RAG pipeline with performance optimizations"""
         self.project_name = project_name
         self.model_loader = model_loader
         
-        # Vector DB manager - use QdrantVectorDB like the enhanced retriever
+        # Vector DB manager - now uses connection pooling for better performance
         self.vector_db = QdrantVectorDB()
         
-        logger.info(f"🚀 Simple RAG Pipeline initialized for project '{project_name}' using collection '{self.vector_db.config.COLLECTION}'")
+        # Performance tracking
+        self._performance_stats = {
+            "embedding_time": 0.0,
+            "search_time": 0.0, 
+            "context_time": 0.0,
+            "generation_time": 0.0
+        }
+        
+        logger.info(f"🚀 Optimized Simple RAG Pipeline initialized for project '{project_name}' using collection '{self.vector_db.config.COLLECTION}'")
     def run(
         self,
         query: str,
@@ -51,9 +59,10 @@ class SimpleRAGPipeline:
                 return self._create_error_response("Empty query provided")
             logger.info(f"🔎 Simple RAG Query: {query}")
             # ==================================================
-            # Step 1: Get Query Embedding
+            # Step 1: Get Query Embedding (with timing)
             # ==================================================
             logger.info("📊 Step 1: Getting query embedding")
+            embed_start = time.time()
             try:
                 # Use model loader embed method directly (like query processor does)
                 if not self.model_loader:
@@ -71,14 +80,18 @@ class SimpleRAGPipeline:
                 if not query_embedding:
                     return self._create_error_response("Empty embedding generated")
                 
-                logger.info(f"✅ Query embedding generated (dim={len(query_embedding)})")
+                embed_time = time.time() - embed_start
+                self._performance_stats["embedding_time"] = embed_time
+                logger.info(f"✅ Query embedding generated in {embed_time:.2f}s (dim={len(query_embedding)})")
             except Exception as e:
-                logger.error(f"❌ Embedding generation failed: {e}")
+                embed_time = time.time() - embed_start
+                logger.error(f"❌ Embedding generation failed in {embed_time:.2f}s: {e}")
                 return self._create_error_response(f"Embedding generation failed: {e}")
             # ==================================================
-            # Step 2: Simple Vector Search
+            # Step 2: Simple Vector Search (with timing)
             # ==================================================
             logger.info(f"📚 Step 2: Searching vector database (top_k={top_k})")
+            search_start = time.time()
             try:
                 # Simple search - QdrantVectorDB uses its own collection config
                 search_results = self.vector_db.search(
@@ -87,18 +100,23 @@ class SimpleRAGPipeline:
                 )
                 
                 if not search_results:
-                    logger.warning("❌ No relevant documents found")
+                    search_time = time.time() - search_start
+                    logger.warning(f"❌ No relevant documents found in {search_time:.2f}s")
                     return self._create_no_results_response(query)
                 
-                logger.info(f"📄 Found {len(search_results)} relevant chunks")
+                search_time = time.time() - search_start
+                self._performance_stats["search_time"] = search_time
+                logger.info(f"📄 Found {len(search_results)} relevant chunks in {search_time:.2f}s")
                 
             except Exception as e:
-                logger.error(f"❌ Vector search failed: {e}")
+                search_time = time.time() - search_start
+                logger.error(f"❌ Vector search failed in {search_time:.2f}s: {e}")
                 return self._create_error_response(f"Vector search failed: {e}")
             # ==================================================
-            # Step 3: Build Simple Context
+            # Step 3: Build Simple Context (with timing)
             # ==================================================
             logger.info("📝 Step 3: Building context")
+            context_start = time.time()
             context_parts = []
             sources = []
             
@@ -136,11 +154,14 @@ class SimpleRAGPipeline:
                 })
             
             context_text = "\n\n".join(context_parts)
-            logger.info(f"📝 Built context from {len(sources)} sources (approx {len(context_text)} chars, ~{len(context_text)//3} tokens)")
+            context_time = time.time() - context_start
+            self._performance_stats["context_time"] = context_time
+            logger.info(f"📝 Built context from {len(sources)} sources in {context_time:.3f}s (approx {len(context_text)} chars, ~{len(context_text)//3} tokens)")
             # ==================================================
-            # Step 4: Generate Answer
+            # Step 4: Generate Answer (with timing)
             # ==================================================
             logger.info("🧠 Step 4: Generating answer")
+            gen_start = time.time()
             try:
                 # Build simple prompt
                 prompt_text = self._build_simple_prompt(context_text, query)
@@ -191,23 +212,32 @@ class SimpleRAGPipeline:
                         # Simple answer format with clean text
                         answer = {"summary": clean_answer}
                         
+                        gen_time = time.time() - gen_start
+                        self._performance_stats["generation_time"] = gen_time
+                        
                         # Log the raw vs clean answer for debugging
                         if raw_answer != clean_answer:
                             logger.info(f"🧹 Cleaned answer: '{raw_answer[:100]}...' → '{clean_answer[:100]}...'")
                     else:
                         # Handle empty response
                         answer = {"summary": "I couldn't generate a response. Please try rephrasing your question or check the sources below."}
+                        gen_time = time.time() - gen_start
+                        self._performance_stats["generation_time"] = gen_time
                         
                 else:
                     # Fallback if no model loader
                     answer = {"summary": "Model loader not available"}
                     model_meta = {}
+                    gen_time = time.time() - gen_start
+                    self._performance_stats["generation_time"] = gen_time
                 
-                logger.info("✅ Answer generated successfully")
+                logger.info(f"✅ Answer generated successfully in {gen_time:.2f}s")
                 
             except Exception as e:
                 error_msg = str(e)
-                logger.error(f"❌ Answer generation failed: {e}")
+                gen_time = time.time() - gen_start
+                self._performance_stats["generation_time"] = gen_time
+                logger.error(f"❌ Answer generation failed in {gen_time:.2f}s: {e}")
                 
                 # Check if it's a token limit error and provide helpful info
                 if "too many input tokens" in error_msg.lower() or "max input tokens" in error_msg.lower():
@@ -219,21 +249,31 @@ class SimpleRAGPipeline:
                 }
                 model_meta = {}
             # ==================================================
-            # Step 5: Format Response
+            # Step 5: Format Response with Performance Stats
             # ==================================================
+            total_time = sum(self._performance_stats.values())
+            
             response = {
                 "answer": answer,
-            #   "sources": sources,
+                "sources": sources,
                 "query": query,
-            #    "total_sources": len(sources),
-               # "pipeline_mode": "simple",
-                "success": True
+                "total_sources": len(sources),
+                "pipeline_mode": "simple",
+                "success": True,
+                "performance": {
+                    "total_time": round(total_time, 3),
+                    "embedding_time": round(self._performance_stats["embedding_time"], 3),
+                    "search_time": round(self._performance_stats["search_time"], 3),
+                    "context_time": round(self._performance_stats["context_time"], 3),
+                    "generation_time": round(self._performance_stats["generation_time"], 3),
+                    "breakdown": f"Embed: {self._performance_stats['embedding_time']:.2f}s | Search: {self._performance_stats['search_time']:.2f}s | Context: {self._performance_stats['context_time']:.3f}s | Generate: {self._performance_stats['generation_time']:.2f}s"
+                }
             }
             
             # Add cost info if available
             if model_meta and "cost" in model_meta:
                 response["cost_usd"] = model_meta["cost"]
-            logger.info("✅ Simple RAG pipeline completed successfully")
+            logger.info(f"✅ Simple RAG pipeline completed in {total_time:.2f}s total - {response['performance']['breakdown']}")
             return response
         except Exception as e:
             logger.error(f"💥 Simple RAG pipeline failed: {e}")

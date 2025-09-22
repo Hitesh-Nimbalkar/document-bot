@@ -1,31 +1,31 @@
+
+
 import boto3
 from typing import Dict, List, Any, Optional
 from botocore.exceptions import ClientError
 from utils.logger import CustomLogger
-
+from utils.connection_pool import connection_pool
 logger = CustomLogger(__name__)
-
 
 # ======================================================
 # Enhanced DynamoDB Client
 # ======================================================
 class EnhancedDynamoDBClient:
     """
-    Enhanced DynamoDB client with common operations for reuse across the application.
-    Provides standardized error handling, logging, and common CRUD operations.
+    Enhanced DynamoDB client with connection pooling for better performance.
+    Uses singleton connection pool to reuse expensive client connections.
     """
-
     def __init__(self, region_name: str = None):
-        """Initialize the DynamoDB client with optional region"""
+        """Initialize the DynamoDB client using connection pool"""
         try:
             self.region_name = region_name
-            self.dynamodb = boto3.resource("dynamodb", region_name=region_name)
-            self.client = boto3.client("dynamodb", region_name=region_name)
-            logger.info("✅ DynamoDB client initialized")
+            # Use connection pool instead of creating new clients
+            self.dynamodb = connection_pool.get_dynamodb_resource(region_name)
+            self.client = self.dynamodb.meta.client  # Get client from resource
+            logger.info("✅ DynamoDB client initialized with connection pooling")
         except Exception as e:
             logger.error(f"💥 Failed to initialize DynamoDB client: {e}")
             raise
-
     # --------------------------------------------------
     # Table Access
     # --------------------------------------------------
@@ -43,7 +43,6 @@ class EnhancedDynamoDBClient:
             else:
                 logger.error(f"💥 Error connecting to table {table_name}: {e}")
                 raise
-
     # --------------------------------------------------
     # Put Item
     # --------------------------------------------------
@@ -56,15 +55,12 @@ class EnhancedDynamoDBClient:
         """Put an item into a DynamoDB table with optional condition"""
         try:
             table = self.get_table(table_name)
-
             put_params = {"Item": item}
             if condition_expression:
                 put_params["ConditionExpression"] = condition_expression
-
             table.put_item(**put_params)
             logger.info(f"✅ Item saved to {table_name}")
             return True
-
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 logger.warning(f"⚠️ Conditional check failed for {table_name}")
@@ -75,7 +71,6 @@ class EnhancedDynamoDBClient:
         except Exception as e:
             logger.error(f"💥 Unexpected error saving to {table_name}: {e}")
             return False
-
     # --------------------------------------------------
     # Get Item
     # --------------------------------------------------
@@ -90,21 +85,18 @@ class EnhancedDynamoDBClient:
             table = self.get_table(table_name)
             response = table.get_item(Key=key, ConsistentRead=consistent_read)
             item = response.get("Item")
-
             if item:
                 logger.info(f"✅ Item retrieved from {table_name}")
                 return item
             else:
                 logger.info(f"📭 Item not found in {table_name}")
                 return None
-
         except ClientError as e:
             logger.error(f"💥 Error getting item from {table_name}: {e}")
             return None
         except Exception as e:
             logger.error(f"💥 Unexpected error getting item from {table_name}: {e}")
             return None
-
     # --------------------------------------------------
     # Update Item
     # --------------------------------------------------
@@ -120,24 +112,20 @@ class EnhancedDynamoDBClient:
         """Update an item in a DynamoDB table"""
         try:
             table = self.get_table(table_name)
-
             update_params = {
                 "Key": key,
                 "UpdateExpression": update_expression,
                 "ReturnValues": "UPDATED_NEW",
             }
-
             if expression_attribute_values:
                 update_params["ExpressionAttributeValues"] = expression_attribute_values
             if expression_attribute_names:
                 update_params["ExpressionAttributeNames"] = expression_attribute_names
             if condition_expression:
                 update_params["ConditionExpression"] = condition_expression
-
             table.update_item(**update_params)
             logger.info(f"✅ Item updated in {table_name}")
             return True
-
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 logger.warning(f"⚠️ Conditional check failed for update in {table_name}")
@@ -148,7 +136,6 @@ class EnhancedDynamoDBClient:
         except Exception as e:
             logger.error(f"💥 Unexpected error updating item in {table_name}: {e}")
             return False
-
     # --------------------------------------------------
     # Delete Item
     # --------------------------------------------------
@@ -158,15 +145,12 @@ class EnhancedDynamoDBClient:
         """Delete an item from a DynamoDB table"""
         try:
             table = self.get_table(table_name)
-
             delete_params = {"Key": key}
             if condition_expression:
                 delete_params["ConditionExpression"] = condition_expression
-
             table.delete_item(**delete_params)
             logger.info(f"✅ Item deleted from {table_name}")
             return True
-
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
                 logger.warning(f"⚠️ Conditional check failed for delete in {table_name}")
@@ -177,7 +161,6 @@ class EnhancedDynamoDBClient:
         except Exception as e:
             logger.error(f"💥 Unexpected error deleting item from {table_name}: {e}")
             return False
-
     # --------------------------------------------------
     # Query Items
     # --------------------------------------------------
@@ -195,7 +178,6 @@ class EnhancedDynamoDBClient:
         """Query items from a DynamoDB table - matches metadata.py call pattern"""
         try:
             table = self.get_table(table_name)
-
             if isinstance(key_condition_expression, str):
                 query_params = {
                     "KeyConditionExpression": key_condition_expression,
@@ -206,7 +188,6 @@ class EnhancedDynamoDBClient:
                     "KeyConditionExpression": str(key_condition_expression),
                     "ScanIndexForward": scan_index_forward,
                 }
-
             if expression_attribute_values:
                 query_params["ExpressionAttributeValues"] = expression_attribute_values
             if expression_attribute_names:
@@ -217,20 +198,16 @@ class EnhancedDynamoDBClient:
                 query_params["IndexName"] = index_name
             if limit:
                 query_params["Limit"] = limit
-
             response = table.query(**query_params)
             items = response.get("Items", [])
-
             logger.info(f"✅ Query returned {len(items)} items from {table_name}")
             return items
-
         except ClientError as e:
             logger.error(f"💥 Error querying {table_name}: {e}")
             return []
         except Exception as e:
             logger.error(f"💥 Unexpected error querying {table_name}: {e}")
             return []
-
     # --------------------------------------------------
     # Scan Items
     # --------------------------------------------------
@@ -245,7 +222,6 @@ class EnhancedDynamoDBClient:
         """Scan items from a DynamoDB table (use sparingly for large tables)"""
         try:
             table = self.get_table(table_name)
-
             scan_params = {}
             if filter_expression:
                 scan_params["FilterExpression"] = filter_expression
@@ -255,13 +231,10 @@ class EnhancedDynamoDBClient:
                 scan_params["ExpressionAttributeNames"] = expression_attribute_names
             if limit:
                 scan_params["Limit"] = limit
-
             response = table.scan(**scan_params)
             items = response.get("Items", [])
-
             logger.info(f"✅ Scan returned {len(items)} items from {table_name}")
             return items
-
         except ClientError as e:
             logger.error(f"💥 Error scanning {table_name}: {e}")
             return []
@@ -269,41 +242,33 @@ class EnhancedDynamoDBClient:
             logger.error(f"💥 Unexpected error scanning {table_name}: {e}")
             return []
 
-
 # ======================================================
 # Metadata Service
 # ======================================================
 class DynamoMetadataService(EnhancedDynamoDBClient):
     """Enhanced metadata service that inherits from EnhancedDynamoDBClient"""
-
     def __init__(self, table_name: str = "document-metadata", region_name: str = None):
         super().__init__(region_name)
         self.table_name = table_name
         logger.info(f"✅ DynamoMetadataService initialized for table: {table_name}")
-
     def save_metadata(self, item: Dict[str, Any]) -> bool:
         """Save document metadata using enhanced put_item"""
         return self.put_item(self.table_name, item)
-
     def get_metadata(self, document_id: str) -> Optional[Dict[str, Any]]:
         """Get document metadata by document_id"""
         return self.get_item(self.table_name, {"document_id": document_id})
-
     def update_metadata(self, document_id: str, updates: Dict[str, Any]) -> bool:
         """Update document metadata with provided updates"""
         update_expression_parts = []
         expression_values = {}
         expression_names = {}
-
         for key, value in updates.items():
             attr_name = f"#attr_{key}"
             attr_value = f":val_{key}"
             update_expression_parts.append(f"{attr_name} = {attr_value}")
             expression_values[attr_value] = value
             expression_names[attr_name] = key
-
         update_expression = "SET " + ", ".join(update_expression_parts)
-
         return self.update_item(
             self.table_name,
             {"document_id": document_id},
@@ -311,11 +276,9 @@ class DynamoMetadataService(EnhancedDynamoDBClient):
             expression_values,
             expression_names,
         )
-
     def delete_metadata(self, document_id: str) -> bool:
         """Delete document metadata by document_id"""
         return self.delete_item(self.table_name, {"document_id": document_id})
-
     def find_by_content_hash(self, content_hash: str) -> List[Dict[str, Any]]:
         """Find documents by content hash using GSI - matches MetadataManager structure"""
         return self.query_items(
@@ -324,3 +287,4 @@ class DynamoMetadataService(EnhancedDynamoDBClient):
             expression_attribute_values={":hash": content_hash},
             index_name="content_hash-index",
         )
+
