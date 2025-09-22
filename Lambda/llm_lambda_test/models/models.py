@@ -1,6 +1,11 @@
 
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+
+
+
+from typing import List, Optional, Dict, Any, Union
+from pydantic import BaseModel, Field, validator
+from enum import Enum
+import datetime
 # ---------------------------
 # Model for analyze_document action
 # ---------------------------
@@ -10,7 +15,6 @@ class AnalyzeDocumentPayload(BaseModel):
     project_id: Optional[str] = Field(None, description="Project identifier")
     user_id: Optional[str] = Field(None, description="User identifier")
     session_id: Optional[str] = Field(None, description="Session identifier")
-
 # ---------------------------
 # Dedicated payload for document comparison requests
 # ---------------------------
@@ -45,12 +49,10 @@ class Entity(BaseModel):
     type: str
     start_pos: Optional[int] = None
     end_pos: Optional[int] = None
-
 class SectionSummary(BaseModel):
     """Summary for a specific section of the document"""
     section_title: Optional[str] = None
     summary_text: str
-
 class DataAnalysisMetadata(BaseModel):
     """Structured metadata for the analyzed document"""
     title: Optional[str] = None
@@ -64,3 +66,43 @@ class DataAnalysisMetadata(BaseModel):
     summary: Optional[str] = None
     section_summaries: Optional[List[SectionSummary]] = None
     additional_metadata: Optional[Dict[str, str]] = None
+# ---------------------------
+# RAG SIMPLE MODELS - Simple Input/Response
+# ---------------------------
+class RAGSimpleInput(BaseModel):
+    """Simple input model for RAG queries"""
+    query: str
+    project_name: str
+    llm_model: str
+    embedding_model: str
+    bedrock_region: str = "ap-south-1"  # Fixed region
+    temperature: float
+    max_tokens: int
+    top_k: int = 3  # Fixed value for simple RAG
+    session_id: str  # Session ID from login - REQUIRED
+class RAGSimpleResponse(BaseModel):
+    """Enhanced response model for RAG queries with monitoring fields"""
+    # Core response
+    answer: str
+    source_documents: list = []
+    
+    # Request tracking
+    query: str
+    project_name: str
+    timestamp: str
+    
+    # Model configuration used
+    models_used: dict = {}
+    
+    # Performance metrics
+    processing_time_seconds: Optional[float] = None
+    total_documents_retrieved: int = 0
+    
+    # Response metadata
+    success: bool = True
+    error: Optional[str] = None
+    pipeline_version: str = "simple_v1"
+    
+    # Parameters used for monitoring
+    parameters_used: dict = {}
+

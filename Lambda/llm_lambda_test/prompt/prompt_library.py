@@ -1,16 +1,16 @@
 
+
+
 # Import output models at the top
 from models.models import DataAnalysisMetadata, DocumentComparisonResult
 from pydantic import BaseModel
 from typing import Dict, Any
-
 # =============================================================================
 # OUTPUT MODELS
 # =============================================================================
 class RAGOutput(BaseModel):
     answer: Dict[str, Any]  # could be structured like {"summary": str, ...}
     sources: list[Dict[str, Any]]
-
 class QueryIntent(BaseModel):
     intent: str 
 class RewrittenQuery(BaseModel):
@@ -26,11 +26,9 @@ class RerankedResults(BaseModel):
 4. Re-rank chunks (LLM) → return top 5
 5. Build context → fill chosen prompt → final LLM answer
 """
-
 # =============================================================================
 # PROMPTS
 # =============================================================================
-
 
 DOCUMENT_ANALYSIS_PROMPT = """
 You are an expert document analyst. Analyze the following document and extract key insights, summary, and metadata.
@@ -49,7 +47,6 @@ Return your analysis as a JSON object with the following structure:
 Document:
 {document_text}
 """
-
 DOCUMENT_COMPARATOR_PROMPT = """
 You are an expert at comparing documents.
 Compare the following two documents and provide:
@@ -117,7 +114,6 @@ Instructions:
 - Return the chunks in order of most relevant to least relevant.
 - Keep the original chunk text and metadata.
 """
-
 # =============================================================================
 # PROMPT-MODEL MAPPING REGISTRY
 # =============================================================================
@@ -158,3 +154,4 @@ PROMPT_MODEL_REGISTRY = {
     "output_model": RerankedResults
     },
 }
+

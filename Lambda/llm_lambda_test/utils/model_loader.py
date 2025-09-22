@@ -1,5 +1,8 @@
 
 
+
+
+
 import os
 import json
 import boto3
@@ -7,7 +10,6 @@ import logging
 from typing import Any, Dict, List, Optional, Protocol
 import time  # added for retry backoff
 from utils.connection_pool import connection_pool
-
 # =============================================================================
 # Configuration
 # =============================================================================
@@ -31,7 +33,6 @@ if _override:
         MODEL_COSTS.update(json.loads(_override))
     except Exception:
         pass
-
 def calculate_cost(model_id: str, usage: Dict[str, int]) -> float:
     """
     Compute approximate cost based on MODEL_COSTS and usage.
@@ -48,22 +49,17 @@ def calculate_cost(model_id: str, usage: Dict[str, int]) -> float:
     if "documents" in usage and "per_document" in cfg:
         cost += usage["documents"] * cfg["per_document"]
     return round(cost, 8)
-
 # =============================================================================
 # Exceptions
 # =============================================================================
 class ProviderError(Exception):
     """Base exception for all provider errors."""
-
 class EmbeddingError(ProviderError):
     """Raised when embedding fails."""
-
 class GenerationError(ProviderError):
     """Raised when generation fails."""
-
 class RerankError(ProviderError):
     """Raised when rerank fails."""
-
 # =============================================================================
 # Provider Interface
 # =============================================================================
@@ -76,7 +72,6 @@ class Provider(Protocol):
     def rerank(
         self, query: str, documents: List[str], top_n: Optional[int] = None, **kwargs
     ) -> tuple[List[Dict[str, Any]], Dict[str, Any]]: ...
-
 # =============================================================================
 # Bedrock Provider
 # =============================================================================
@@ -285,7 +280,6 @@ class BedrockProvider:
         }
         meta = {"model": model_id, "usage": usage, "cost": calculate_cost(model_id, usage)}
         return trimmed, meta
-
 # =============================================================================
 # Model Loader
 # =============================================================================
@@ -380,4 +374,5 @@ if __name__ == "__main__":
     except Exception as e:
         print("Example error:", e)
     print("=== End Example ===")
+
 

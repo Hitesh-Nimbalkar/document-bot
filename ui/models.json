@@ -1,4 +1,3 @@
-
 {
   "version": 1,
   "embeddings": {
@@ -76,6 +75,20 @@
       "default_params": {
         "model": "gpt-4o",
         "temperature": 0.1
+      }
+    },
+    "titan_text_lite_v1": {
+      "provider": "aws_bedrock",
+      "model_id": "amazon.titan-text-lite-v1",
+      "import_path": "langchain_aws.ChatBedrock",
+      "secret_name": "aws/credentials",
+      "context_length": 4000,
+      "max_output_tokens": 2048,
+      "modality": ["text"],
+      "recommended_use": "fast, lightweight LLM for text generation",
+      "default_params": {
+        "model": "amazon.titan-text-lite-v1",
+        "temperature": 0.3
       }
     }
   }

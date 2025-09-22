@@ -1,0 +1,18 @@
+{
+  "llm_models": [
+    { "id": "claude_3_5_sonnet", "name": "Claude 3.5 Sonnet", "recommended": true },
+    { "id": "gpt_4o", "name": "GPT-4o", "recommended": false },
+    { "id": "amazon.titan-text-lite-v1", "name": "Titan Text Lite v1", "recommended": false }
+  ],
+  "embedding_models": [
+    { "id": "amazon.titan-embed-text-v2:0", "name": "Titan V2", "recommended": true },
+    { "id": "text_embedding_3_small", "name": "Text Embedding 3 Small", "recommended": false },
+    { "id": "text_embedding_3_large", "name": "Text Embedding 3 Large", "recommended": false }
+  ],
+  "default_configuration": {
+    "llmModel": "claude_3_5_sonnet",
+    "embeddingModel": "titan_v2",
+    "temperature": 0.7,
+    "maxTokens": 1024
+  }
+}

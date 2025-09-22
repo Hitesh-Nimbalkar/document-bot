@@ -1,5 +1,6 @@
 
 
+
 """
 Prompt Registry for RAG Simple Pipeline
 =======================================
@@ -18,7 +19,6 @@ Usage:
 from typing import Dict
 from utils.logger import CustomLogger
 logger = CustomLogger(__name__)
-
 class PromptRegistry:
     """Central registry for prompt templates, organized by pipeline component."""
     def __init__(self):
@@ -141,4 +141,5 @@ Answer:"""
     def fill_template(self, intent: str, context: str, query: str) -> str:
         """Legacy method mapping to the new get_prompt structure."""
         return self.get_prompt("query_processor", intent, context=context, query=query)
+
 

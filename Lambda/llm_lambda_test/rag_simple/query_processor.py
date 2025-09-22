@@ -1,6 +1,7 @@
 
 
 
+
 # =====================================================
 # Simple Query Processor for RAG Simple Pipeline
 # =====================================================
@@ -28,7 +29,6 @@ from enum import Enum
 from typing import Tuple, Dict
 from rag_simple.prompt_registry import PromptRegistry
 logger = logging.getLogger(__name__)
-
 # =====================================================
 # Intent Enumeration
 # =====================================================
@@ -39,7 +39,6 @@ class Intent(str, Enum):
     COMPARE   = "COMPARE"
     LIST      = "LIST"
     ANSWER    = "ANSWER"  # default / fallback
-
 # =====================================================
 # Simple Query Processor
 # =====================================================
@@ -320,7 +319,6 @@ Answer:"""
             True if prompt is available, False otherwise
         """
         return intent.value in self.get_supported_prompts()
-
 # =====================================================
 # Usage Example and Testing
 # =====================================================
@@ -376,3 +374,4 @@ if __name__ == "__main__":
             print(f"→ Processing Status: ❌ Error: {e}")
         
         print("-" * 50)
+
