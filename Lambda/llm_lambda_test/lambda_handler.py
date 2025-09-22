@@ -1,4 +1,5 @@
 
+
 # =====================================================
 # UI MODULE IMPORTS (only get_presigned_url)
 # =====================================================
@@ -206,27 +207,25 @@ def handle_rag_query(payload: dict, event: dict) -> dict:
             "success": False,
             "error_type": "rag_query_error"
         })
-
 def handle_rag_simple(payload: dict, event: dict) -> dict:
     """Handle simple RAG query - basic semantic search for testing"""
+    import time
+    
     try:
         query = payload.get("query")
         project_name = payload.get("project_name")
-        session_id = payload.get("session_id")  # Accept session_id like regular RAG
         
         if not all([query, project_name]):
             raise ValueError("Missing required fields: query, project_name")
         
         logger.info(f"🚀 Simple RAG Query: {query} for project: {project_name}")
         
-        # Get model configuration from payload or use defaults (same as regular RAG)
+        # Get model configuration from payload or use defaults
         llm_model = payload.get("llm_model", os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0"))
         embedding_model = payload.get("embedding_model", os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0"))
         region = payload.get("bedrock_region", os.getenv("BEDROCK_REGION", "ap-south-1"))
         
-        logger.info(f"🧠 Simple RAG models: LLM={llm_model}, Embedding={embedding_model}, Region={region}")
-        
-        # Create ModelLoader with BedrockProvider (same as regular RAG)
+        # Create ModelLoader with BedrockProvider
         model_loader = ModelLoader()
         bedrock_provider = BedrockProvider(
             embedding_model=embedding_model,
@@ -239,37 +238,21 @@ def handle_rag_simple(payload: dict, event: dict) -> dict:
         # Initialize Simple RAG pipeline
         simple_rag = SimpleRAGPipeline(project_name=project_name, model_loader=model_loader)
         
-        # Simple RAG parameters (same parameter names as regular RAG)
-        top_k = payload.get("top_k", 3)  # Default to 3 for simple RAG to avoid token limits
-        # Cap top_k at 3 for simple pipeline to prevent token limit issues
-        if top_k > 3:
-            top_k = 3
-            logger.info("⚠️ Limited top_k to 3 for simple RAG to avoid token limits")
-            
-        chat_history_limit = payload.get("chat_history_limit", 10)  # Accept but don't use in simple mode
-        enable_reranking = payload.get("enable_reranking", True)    # Accept but don't use in simple mode
-        temperature = payload.get("temperature")  # Pass through generation parameters
-        max_tokens = payload.get("max_tokens")
-        top_p = payload.get("top_p")
+        # Run simple RAG pipeline
+        top_k = min(payload.get("top_k", 3), 3)  # Cap at 3
+        result = simple_rag.run(query=query, top_k=top_k, event=event, payload=payload)
         
-        logger.info(f"🔍 Simple RAG Parameters: top_k={top_k} (other params accepted but not used in simple mode)")
-        
-        # Run simple RAG pipeline with same payload structure
-        result = simple_rag.run(
-            query=query,
-            top_k=top_k,
-            event=event,
-            payload=payload  # Pass full payload to maintain consistency
-        )
-        
+        # Lambda handler formats the final response
         return make_response(200, {
             **result,
+            "success": True,
             "pipeline_version": "simple_v1",
             "models_used": {
                 "llm_model": llm_model,
                 "embedding_model": embedding_model,
                 "region": region
-            }
+            },
+            "timestamp": time.time()
         })
         
     except Exception as e:
@@ -277,7 +260,8 @@ def handle_rag_simple(payload: dict, event: dict) -> dict:
         return make_response(500, {
             "error": str(e), 
             "success": False,
-            "error_type": "simple_rag_error"
+            "error_type": "simple_rag_error",
+            "timestamp": time.time()
         })
 # =====================================================
 # MAIN LAMBDA HANDLER
@@ -332,4 +316,5 @@ def lambda_handler(event, context):
             "success": False,
             "error_type": "critical"
         })
+
 

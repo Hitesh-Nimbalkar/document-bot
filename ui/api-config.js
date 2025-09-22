@@ -1,12 +1,11 @@
+
+
 // ====================================
 // API CONFIGURATION
 // ====================================
-
 // Always point to backend (Lambda emulator / API server)
 const BASE_URL = "http://localhost:4000";
-
 console.log("🌐 API Base URL:", BASE_URL);
-
 // ====================================
 // API ENDPOINTS
 // ====================================
@@ -17,7 +16,24 @@ window.API_ENDPOINTS = {
     RAG_SIMPLE: "/rag_simple",
     HEALTH: "/health"
 };
-
+// ====================================
+// AUTH HEADERS HELPER
+// ====================================
+function getAuthHeaders() {
+    const sessionId = localStorage.getItem('session_id') || 
+                     sessionStorage.getItem('session_id') || 
+                     localStorage.getItem('user_session_id');
+    
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    
+    if (sessionId) {
+        headers['X-Session-ID'] = sessionId;
+    }
+    
+    return headers;
+}
 // ====================================
 // API WRAPPER
 // ====================================
@@ -27,22 +43,21 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
         route: endpoint,    // Lambda expects "route"
         payload
     };
-
     const defaultOptions = {
         method: "POST",
         headers: {
-            "Content-Type": "application/json",
-            ...getAuthHeaders()
+            ...getAuthHeaders(),
+            ...options.headers
         },
         body: JSON.stringify(body),
         ...options
     };
-
     try {
         console.log(`📡 Request → ${endpoint}`, payload);
         const response = await fetch(url, defaultOptions);
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            const errorText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
         }
         return await response.json();
     } catch (error) {
@@ -50,3 +65,8 @@ async function makeApiRequest(endpoint, payload = {}, options = {}) {
         throw error;
     }
 }
+// Make functions globally available
+window.makeApiRequest = makeApiRequest;
+window.getAuthHeaders = getAuthHeaders;
+console.log('✅ API Config loaded successfully');
+
