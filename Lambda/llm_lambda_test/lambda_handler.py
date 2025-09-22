@@ -1,6 +1,4 @@
 
-
-
 # =====================================================
 # UI MODULE IMPORTS (only get_presigned_url)
 # =====================================================
@@ -38,7 +36,7 @@ TEMP_PREFIX = os.getenv("TEMP_DATA_KEY", "project-data/uploads/temp")
 from utils.logger import CustomLogger, CustomException
 from chat_history.chat_history import log_chat_history
 from rag.rag_pipeline import RAGPipeline
-from rag.rag_simple import SimpleRAGPipeline  # Add simple RAG pipeline
+from rag_simple.rag_simple import SimpleRAGPipeline  # Fixed import path
 from src.data_ingestion import ingest_document
 from src.data_analysis import DocumentAnalyzer
 from utils.model_loader import ModelLoader, BedrockProvider
@@ -242,7 +240,12 @@ def handle_rag_simple(payload: dict, event: dict) -> dict:
         simple_rag = SimpleRAGPipeline(project_name=project_name, model_loader=model_loader)
         
         # Simple RAG parameters (same parameter names as regular RAG)
-        top_k = payload.get("top_k", 5)
+        top_k = payload.get("top_k", 3)  # Default to 3 for simple RAG to avoid token limits
+        # Cap top_k at 3 for simple pipeline to prevent token limit issues
+        if top_k > 3:
+            top_k = 3
+            logger.info("⚠️ Limited top_k to 3 for simple RAG to avoid token limits")
+            
         chat_history_limit = payload.get("chat_history_limit", 10)  # Accept but don't use in simple mode
         enable_reranking = payload.get("enable_reranking", True)    # Accept but don't use in simple mode
         temperature = payload.get("temperature")  # Pass through generation parameters

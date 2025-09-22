@@ -2,18 +2,21 @@
 
 # rag_simple.py
 """
-Simple RAG Pipeline for Testing
-===============================
-Simplified version focusing only on basic semantic search:
-1. Get query embedding
-2. Search vector database
-3. Generate answer with LLM
-No complex features:
-- No query rewriting
-- No intent classification  
-- No metadata filtering
-- No re-ranking
-- No enhanced context building
+Intent-Aware RAG Pipeline for Testing
+====================================
+⚡ Complete Workflow:
+User Query → "Summarize the last 3 reports."
+Intent Classifier → ("last 3 reports", SUMMARIZE)
+Vector DB Retrieval → fetch relevant chunks.
+Prompt Registry Lookup → find SUMMARIZE template.
+Fill Template → "Summarize the following retrieved text…" + chunks.
+Send to LLM → Get nice structured output.
+Features:
+1. Intent detection and query cleaning
+2. Vector search with cleaned queries  
+3. Intent-specific prompt templates
+4. Structured output generation
+5. Performance tracking with timing
 """
 from typing import Any, Dict, List, Optional
 import time
@@ -22,7 +25,7 @@ from utils.model_loader import ModelLoader
 # Remove get_embeddings import since it's broken
 # from utils.embeddings import get_embeddings
 from vector_db.vector_db import QdrantVectorDB
-from prompt.prompt_library import PROMPT_MODEL_REGISTRY
+from rag_simple.query_processor import SimpleQueryProcessor, Intent
 logger = CustomLogger(__name__)
 
 class SimpleRAGPipeline:
@@ -35,15 +38,22 @@ class SimpleRAGPipeline:
         # Vector DB manager - now uses connection pooling for better performance
         self.vector_db = QdrantVectorDB()
         
+        # Query processor for intent detection and query cleaning
+        self.query_processor = SimpleQueryProcessor()
+        
+        # Query processor now handles prompt selection logic - no need for separate registry
+        
         # Performance tracking
         self._performance_stats = {
+            "intent_detection_time": 0.0,
             "embedding_time": 0.0,
             "search_time": 0.0, 
             "context_time": 0.0,
             "generation_time": 0.0
         }
         
-        logger.info(f"🚀 Optimized Simple RAG Pipeline initialized for project '{project_name}' using collection '{self.vector_db.config.COLLECTION}'")
+        logger.info(f"🚀 Intent-Aware RAG Pipeline initialized for project '{project_name}' using collection '{self.vector_db.config.COLLECTION}'")
+        logger.info("⚡ Workflow enabled: User Query → Query Processor (Intent + Prompt Selection) → Vector DB → LLM → Structured Output")
     def run(
         self,
         query: str,
@@ -59,17 +69,39 @@ class SimpleRAGPipeline:
                 return self._create_error_response("Empty query provided")
             logger.info(f"🔎 Simple RAG Query: {query}")
             # ==================================================
-            # Step 1: Get Query Embedding (with timing)
+            # Step 1: Intent Detection & Query Processing (NEW!)
             # ==================================================
-            logger.info("📊 Step 1: Getting query embedding")
+            logger.info("🎯 Step 1: Intent detection and query processing")
+            intent_start = time.time()
+            try:
+                clean_query, detected_intent = self.query_processor.detect_intent_and_clean(query)
+                intent_time = time.time() - intent_start
+                self._performance_stats["intent_detection_time"] = intent_time
+                
+                logger.info(f"✅ Intent detection completed in {intent_time:.3f}s")
+                logger.info(f"   Original: '{query}'")
+                logger.info(f"   Cleaned: '{clean_query}'")
+                logger.info(f"   Intent: {detected_intent.name}")
+                
+            except Exception as e:
+                intent_time = time.time() - intent_start
+                logger.error(f"❌ Intent detection failed in {intent_time:.3f}s: {e}")
+                # Fallback to original query if intent detection fails
+                clean_query = query
+                detected_intent = Intent.ANSWER
+                self._performance_stats["intent_detection_time"] = intent_time
+            # ==================================================
+            # Step 2: Get Query Embedding (with timing)
+            # ==================================================
+            logger.info("📊 Step 2: Getting query embedding")
             embed_start = time.time()
             try:
-                # Use model loader embed method directly (like query processor does)
+                # Use model loader embed method directly with the CLEANED query
                 if not self.model_loader:
                     return self._create_error_response("Model loader not available for embedding generation")
                 
-                # Get embedding using model loader's embed method
-                embedding_result = self.model_loader.embed(query, model_id="amazon.titan-embed-text-v2:0")
+                # Get embedding using model loader's embed method with clean query
+                embedding_result = self.model_loader.embed(clean_query, model_id="amazon.titan-embed-text-v2:0")
                 
                 # Handle tuple return (embedding, metadata) - same as query processor
                 if isinstance(embedding_result, tuple):
@@ -88,9 +120,9 @@ class SimpleRAGPipeline:
                 logger.error(f"❌ Embedding generation failed in {embed_time:.2f}s: {e}")
                 return self._create_error_response(f"Embedding generation failed: {e}")
             # ==================================================
-            # Step 2: Simple Vector Search (with timing)
+            # Step 3: Simple Vector Search (with timing)
             # ==================================================
-            logger.info(f"📚 Step 2: Searching vector database (top_k={top_k})")
+            logger.info(f"📚 Step 3: Searching vector database (top_k={top_k})")
             search_start = time.time()
             try:
                 # Simple search - QdrantVectorDB uses its own collection config
@@ -113,9 +145,9 @@ class SimpleRAGPipeline:
                 logger.error(f"❌ Vector search failed in {search_time:.2f}s: {e}")
                 return self._create_error_response(f"Vector search failed: {e}")
             # ==================================================
-            # Step 3: Build Simple Context (with timing)
+            # Step 4: Build Simple Context (with timing)
             # ==================================================
-            logger.info("📝 Step 3: Building context")
+            logger.info("📝 Step 4: Building context")
             context_start = time.time()
             context_parts = []
             sources = []
@@ -158,35 +190,55 @@ class SimpleRAGPipeline:
             self._performance_stats["context_time"] = context_time
             logger.info(f"📝 Built context from {len(sources)} sources in {context_time:.3f}s (approx {len(context_text)} chars, ~{len(context_text)//3} tokens)")
             # ==================================================
-            # Step 4: Generate Answer (with timing)
+            # Step 5: Complete Query Processing & Prompt Generation
             # ==================================================
-            logger.info("🧠 Step 4: Generating answer")
+            logger.info("🎯 Step 5: Complete query processing and prompt generation")  
             gen_start = time.time()
             try:
-                # Build simple prompt
-                prompt_text = self._build_simple_prompt(context_text, query)
+                # ⚡ New Simplified Workflow: Query processor handles everything!
+                # Just pass query + context, get back filled prompt ready for LLM
+                _, detected_intent_check, prompt_text = self.query_processor.process_query_and_get_prompt(
+                    query=query,
+                    context=context_text
+                )
+                
+                # Verify intent consistency (should match what we detected earlier)
+                if detected_intent_check != detected_intent:
+                    logger.warning(f"⚠️ Intent mismatch: {detected_intent} vs {detected_intent_check}")
+                
+                logger.info(f"✅ Query processor generated {detected_intent.name} prompt")
                 
                 # Log prompt length for debugging
                 prompt_length = len(prompt_text)
                 estimated_tokens = prompt_length // 3  # More conservative estimate
                 logger.info(f"📏 Prompt length: {prompt_length} chars (~{estimated_tokens} tokens)")
                 
-                # If prompt is still too long, use much fewer sources
+                # If prompt is still too long, use fewer sources (fallback handling)
                 if estimated_tokens > 3000:  # Much more conservative limit
-                    logger.warning("⚠️ Prompt still too long, using only first source with heavy truncation")
+                    logger.warning("⚠️ Prompt too long, reducing context and regenerating")
                     # Rebuild with just first source, heavily truncated
                     if sources:
                         first_source = sources[0]
                         content = first_source["metadata"].get("text", "")[:300]  # Very short
                         filename = first_source["filename"]
-                        context_text = f"--- Source: {filename} ---\n{content}"
-                        prompt_text = self._build_simple_prompt(context_text, query)
-                        logger.info(f"📏 Emergency reduction - prompt length: {len(prompt_text)} chars (~{len(prompt_text)//3} tokens)")
+                        reduced_context = f"--- Source: {filename} ---\n{content}"
+                        
+                        # Regenerate prompt with reduced context
+                        _, _, prompt_text = self.query_processor.process_query_and_get_prompt(
+                            query=query,
+                            context=reduced_context
+                        )
+                        logger.info(f"📏 Reduced prompt length: {len(prompt_text)} chars (~{len(prompt_text)//3} tokens)")
                     else:
                         # Last resort - no context at all
-                        logger.warning("⚠️ Using no context due to token limits")
-                        context_text = "No relevant context found due to token limitations."
-                        prompt_text = self._build_simple_prompt(context_text, query)
+                        logger.warning("⚠️ Using minimal context due to token limits")
+                        minimal_context = "Limited context available due to token constraints."
+                        _, _, prompt_text = self.query_processor.process_query_and_get_prompt(
+                            query=query,
+                            context=minimal_context
+                        )
+                
+                logger.info(f"🚀 Sending to LLM: Ready for {detected_intent.name.lower()} generation")
                 
                 # Generate answer using model loader
                 if self.model_loader:
@@ -249,7 +301,7 @@ class SimpleRAGPipeline:
                 }
                 model_meta = {}
             # ==================================================
-            # Step 5: Format Response with Performance Stats
+            # Step 6: Format Response with Performance Stats
             # ==================================================
             total_time = sum(self._performance_stats.values())
             
@@ -257,34 +309,30 @@ class SimpleRAGPipeline:
                 "answer": answer,
                 "sources": sources,
                 "query": query,
+                "clean_query": clean_query,  # Include cleaned query
+                "detected_intent": detected_intent.name,  # Include detected intent
                 "total_sources": len(sources),
-                "pipeline_mode": "simple",
+                "pipeline_mode": "simple_with_intent",  # Updated pipeline mode
                 "success": True,
                 "performance": {
                     "total_time": round(total_time, 3),
+                    "intent_detection_time": round(self._performance_stats["intent_detection_time"], 3),
                     "embedding_time": round(self._performance_stats["embedding_time"], 3),
                     "search_time": round(self._performance_stats["search_time"], 3),
                     "context_time": round(self._performance_stats["context_time"], 3),
                     "generation_time": round(self._performance_stats["generation_time"], 3),
-                    "breakdown": f"Embed: {self._performance_stats['embedding_time']:.2f}s | Search: {self._performance_stats['search_time']:.2f}s | Context: {self._performance_stats['context_time']:.3f}s | Generate: {self._performance_stats['generation_time']:.2f}s"
+                    "breakdown": f"Intent: {self._performance_stats['intent_detection_time']:.3f}s | Embed: {self._performance_stats['embedding_time']:.2f}s | Search: {self._performance_stats['search_time']:.2f}s | Context: {self._performance_stats['context_time']:.3f}s | Generate: {self._performance_stats['generation_time']:.2f}s"
                 }
             }
             
             # Add cost info if available
             if model_meta and "cost" in model_meta:
                 response["cost_usd"] = model_meta["cost"]
-            logger.info(f"✅ Simple RAG pipeline completed in {total_time:.2f}s total - {response['performance']['breakdown']}")
+            logger.info(f"✅ Intent-aware RAG pipeline completed in {total_time:.2f}s total - {response['performance']['breakdown']}")
             return response
         except Exception as e:
-            logger.error(f"💥 Simple RAG pipeline failed: {e}")
+            logger.error(f"💥 Intent-aware RAG pipeline failed: {e}")
             return self._create_error_response(f"Pipeline failed: {e}")
-    def _build_simple_prompt(self, context: str, query: str) -> str:
-        """Build a concise prompt for answer generation to save tokens"""
-        return f"""Based on the context below, provide a clear and helpful answer to the question.
-Context:
-{context}
-Question: {query}
-Provide a clear, concise answer in plain English:"""
     def _create_error_response(self, error_message: str) -> dict:
         """Create standardized error response"""
         # Make error messages more user-friendly
@@ -303,8 +351,10 @@ Provide a clear, concise answer in plain English:"""
             "answer": {"summary": user_friendly_message},
             "sources": [],
             "query": "",
+            "clean_query": "",
+            "detected_intent": "UNKNOWN",
             "total_sources": 0,
-            "pipeline_mode": "simple",
+            "pipeline_mode": "simple_with_intent",
             "success": False,
             "error": error_message,  # Keep technical error for debugging
             "user_message": user_friendly_message
@@ -315,8 +365,10 @@ Provide a clear, concise answer in plain English:"""
             "answer": {"summary": "I couldn't find any relevant documents that answer your question. Try using different keywords or asking about a different topic."},
             "sources": [],
             "query": query,
+            "clean_query": query,
+            "detected_intent": "ANSWER",
             "total_sources": 0,
-            "pipeline_mode": "simple", 
+            "pipeline_mode": "simple_with_intent", 
             "success": False,
             "error": "No relevant documents found",
             "user_message": "No relevant documents found. Try different keywords."

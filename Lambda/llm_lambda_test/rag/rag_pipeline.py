@@ -29,13 +29,8 @@ from chat_history.chat_history import (
     log_model_chat_message,
 )
 # Import QueryProcessor with fallbacks
-try:
-    from .query_processor import QueryProcessor
-except ImportError:
-    try:
-        from query_processor import QueryProcessor
-    except ImportError:
-        QueryProcessor = None  # will raise in __init__
+from .query_processor import QueryProcessor
+
 from .metadata_enhancer import MetadataFilterEngine, MetadataAwareReranker
 from .enhanced_retriever import EnhancedRetriever
 from .context_builder import SmartContextBuilder
