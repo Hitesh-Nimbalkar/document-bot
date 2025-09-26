@@ -62,66 +62,6 @@ resource "aws_dynamodb_table" "metadata" {
   }
   tags = var.common_tags
 }
-#============================================================================
-#  LLM LAMBDA FUNCTION (using platform lambda module)
-# ============================================================================
-module "llm_lambda" {
-  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.7"
-  organization          = var.organization
-  project               = var.project
-  environment           = var.environment
-  purpose               = "llm"
-  image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.2"
-  memory_size           = 512
-  timeout               = 30
-  environment_variables = merge({
-    # S3 Configuration
-    CONFIG_BUCKET          = module.config_bucket.bucket_id
-    CONFIG_KEY             = "config/config.yaml"
-    DOCUMENTS_S3_BUCKET    = module.config_bucket.bucket_id
-    TEMP_DATA_KEY          = "project_data/uploads/temp"
-    DOCUMENTS_DATA_KEY     = "project_data/uploads/documents"
-    
-    # DynamoDB Tables
-    CHAT_HISTORY_TABLE     = aws_dynamodb_table.chat_history.name
-    METADATA_TABLE         = aws_dynamodb_table.metadata.name
-    
-    # Vector Database Configuration (Qdrant)
-    VECTOR_DB_HOST         = "28b2ee72-9fc9-4ecd-acdf-d024c1c7bf5d.eu-west-1-0.aws.cloud.qdrant.io"
-    VECTOR_DB_PORT         = "6333"
-    VECTOR_DB_API_KEY      = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.U6PprcKnZl1ByQCBOurGp-ObPUmn0hKaUeZtenYEQ_8"
-    COLLECTION_NAME        = "Demo"
-    VECTOR_DIMENSION       = "1024"
-    
-    # API Key Secrets (for AWS Secrets Manager)
-    # GOOGLE_API_KEY_SECRET  = "google-api-key-secret-name"
-    # GROQ_API_KEY_SECRET    = "groq-api-key-secret-name"
-    # OPENAI_API_KEY_SECRET  = "openai-api-key-secret-name"
-    # BEDROCK_API_KEY_SECRET = "bedrock-api-key-secret-name"
-  }, {})
-  
-  # Add required IAM policies
-  custom_policy_arns = [
-    aws_iam_policy.lambda_dynamodb_policy.arn,
-    aws_iam_policy.lambda_s3_policy.arn
-  ]
-  
-  common_tags = var.common_tags
-}
-# ============================================================================
-
-
-# -----------------------------------------------------
-# Upload config.yaml into the new config bucket
-# -----------------------------------------------------
-resource "aws_s3_object" "config_file" {
-  bucket = module.config_bucket.bucket_id     # new bucket created above
-  key    = "config/config.yaml"               # object path in bucket
-  source = "${path.module}/s3/config/config.yaml"  # local file path
-  etag   = filemd5("${path.module}/s3/config/config.yaml")
-  depends_on = [module.config_bucket]         # ensures bucket is created first
-}
-
 # -----------------------------
 # IAM Policy for DynamoDB access
 # -----------------------------
@@ -187,6 +127,67 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
     ]
   })
 }
+#============================================================================
+#  LLM LAMBDA FUNCTION (using platform lambda module)
+# ============================================================================
+module "llm_lambda" {
+  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.7"
+  organization          = var.organization
+  project               = var.project
+  environment           = var.environment
+  purpose               = "llm"
+  image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.2"
+  memory_size           = 512
+  timeout               = 30
+  environment_variables = merge({
+    # S3 Configuration
+    CONFIG_BUCKET          = module.config_bucket.bucket_id
+    CONFIG_KEY             = "config/config.yaml"
+    DOCUMENTS_S3_BUCKET    = module.config_bucket.bucket_id
+    TEMP_DATA_KEY          = "project_data/uploads/temp"
+    DOCUMENTS_DATA_KEY     = "project_data/uploads/documents"
+    
+    # DynamoDB Tables
+    CHAT_HISTORY_TABLE     = aws_dynamodb_table.chat_history.name
+    METADATA_TABLE         = aws_dynamodb_table.metadata.name
+    
+    # Vector Database Configuration (Qdrant)
+    VECTOR_DB_HOST         = "28b2ee72-9fc9-4ecd-acdf-d024c1c7bf5d.eu-west-1-0.aws.cloud.qdrant.io"
+    VECTOR_DB_PORT         = "6333"
+    VECTOR_DB_API_KEY      = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.U6PprcKnZl1ByQCBOurGp-ObPUmn0hKaUeZtenYEQ_8"
+    COLLECTION_NAME        = "Demo"
+    VECTOR_DIMENSION       = "1024"
+    
+    # API Key Secrets (for AWS Secrets Manager)
+    # GOOGLE_API_KEY_SECRET  = "google-api-key-secret-name"
+    # GROQ_API_KEY_SECRET    = "groq-api-key-secret-name"
+    # OPENAI_API_KEY_SECRET  = "openai-api-key-secret-name"
+    # BEDROCK_API_KEY_SECRET = "bedrock-api-key-secret-name"
+  }, {})
+  
+  # Add required IAM policies
+  custom_policy_arns = [
+    aws_iam_policy.lambda_dynamodb_policy.arn,
+    aws_iam_policy.lambda_s3_policy.arn
+  ]
+  
+  common_tags = var.common_tags
+}
+# ============================================================================
+
+
+# -----------------------------------------------------
+# Upload config.yaml into the new config bucket
+# -----------------------------------------------------
+resource "aws_s3_object" "config_file" {
+  bucket = module.config_bucket.bucket_id     # new bucket created above
+  key    = "config/config.yaml"               # object path in bucket
+  source = "${path.module}/s3/config/config.yaml"  # local file path
+  etag   = filemd5("${path.module}/s3/config/config.yaml")
+  depends_on = [module.config_bucket]         # ensures bucket is created first
+}
+
+
 # ===============================
 # API GATEWAY MODULE
 # ===============================
