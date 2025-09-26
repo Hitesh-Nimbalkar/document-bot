@@ -66,7 +66,7 @@ resource "aws_dynamodb_table" "metadata" {
 #  LLM LAMBDA FUNCTION (using platform lambda module)
 # ============================================================================
 module "llm_lambda" {
-  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.6"
+  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.7"
   organization          = var.organization
   project               = var.project
   environment           = var.environment
@@ -191,7 +191,7 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
 # API GATEWAY MODULE
 # ===============================
 module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.6"
+  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.7"
   aws_region   = local.account_region
   organization = var.organization
   environment  = var.environment
