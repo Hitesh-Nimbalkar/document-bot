@@ -243,17 +243,8 @@ module "amplify_ui" {
   base_directory = "/ui"
   # Inject backend API URL into frontend
   environment_variables = {
-    API_URL = module.api_gateway.invoke_url
+    API_URL = module.api_gateway.api_gateway_url
   }
   custom_rules = []
   tags         = var.common_tags
-}
-# ===============================
-# OUTPUTS
-# ===============================
-output "api_gateway_url" {
-  value = module.api_gateway.invoke_url
-}
-output "amplify_ui_url" {
-  value = module.amplify_ui.amplify_branch_url
 }
