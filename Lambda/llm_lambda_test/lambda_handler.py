@@ -1,4 +1,3 @@
-
 # =====================================================
 # UI MODULE IMPORTS (only get_presigned_url)
 # =====================================================
@@ -11,59 +10,62 @@ def _not_implemented(module_name: str):
             }
         }
     return _handler
+
 try:
     from ui.get_presigned_url import handle_get_presigned_url
 except ImportError as e:
     print(f"⚠️ Could not import get_presigned_url: {e}")
     handle_get_presigned_url = _not_implemented("Get presigned URL")
+
 # =====================================================
 # SYSTEM & LIBRARY IMPORTS
 # =====================================================
 import json
 import os
-import uuid
 import datetime
 import boto3
 from botocore.exceptions import ClientError
 from pydantic import ValidationError
+
 # ---------------------------
 # Logger & Config (ENV VARS)
 # ---------------------------
 DOCUMENTS_S3_BUCKET = os.environ.get("DOCUMENTS_S3_BUCKET")
 TEMP_PREFIX = os.getenv("TEMP_DATA_KEY")
+
 # ---------------------------
 # Local imports
 # ---------------------------
-from utils.logger import CustomLogger, CustomException
-from chat_history.chat_history import log_chat_history
+from utils.logger import CustomLogger
 from rag.rag_pipeline import RAGPipeline
-from rag_simple.rag_simple import SimpleRAGPipeline  # Fixed import path
+from rag_simple.rag_simple import SimpleRAGPipeline
 from src.data_ingestion import ingest_document
-from src.data_analysis import DocumentAnalyzer
 from utils.model_loader import ModelLoader, BedrockProvider
 from models.models import SimpleRAGRequest
+
 # ---------------------------
 # Logger instance
 # ---------------------------
 logger = CustomLogger(__name__)
 s3 = boto3.client("s3")
-ALLOWED_EXTENSIONS = (".pdf", ".docx", ".txt")
-MAX_FILE_SIZE_MB = 25
+
 # =====================================================
-# RESPONSE HELPER
+# RESPONSE HELPER with CORS
 # =====================================================
 def make_response(status_code, body):
+    """Standard JSON + CORS response"""
     try:
         response = {
             "statusCode": status_code,
             "headers": {
                 "Access-Control-Allow-Origin": "*",
                 "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
-                "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With",
+                "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Session-ID",
                 "Content-Type": "application/json"
             },
             "body": body if isinstance(body, str) else json.dumps(body, default=str)
         }
+        # add timestamp if not present
         if isinstance(body, dict) and "timestamp" not in body:
             parsed_body = json.loads(response["body"])
             parsed_body["timestamp"] = datetime.datetime.utcnow().isoformat()
@@ -73,88 +75,51 @@ def make_response(status_code, body):
         logger.error(f"Error creating response: {e}")
         return {
             "statusCode": 500,
-            "headers": {"Content-Type": "application/json"},
+            "headers": {
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
+                "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Session-ID",
+                "Content-Type": "application/json"
+            },
             "body": json.dumps({"error": "Response formatting error", "details": str(e)})
         }
+
 # =====================================================
 # ROUTE HANDLERS
 # =====================================================
 def handle_ingest_route(event, payload):
     try:
         logger.info(f"🚀 Handling ingest route with payload: {payload}")
-        
-        # Transform lambda_upload_responses format to expected format
-        if "lambda_upload_responses" in payload:
-            logger.info("📋 Transforming lambda_upload_responses format")
-            lambda_responses = payload["lambda_upload_responses"]
-            
-            if not isinstance(lambda_responses, list) or not lambda_responses:
-                logger.error("❌ lambda_upload_responses must be a non-empty list")
-                return make_response(400, {"error": "Invalid lambda_upload_responses format"})
-            
-            # Transform the format: extract the body from each lambda response and use it directly
-            try:
-                # Take the first response and use its body as the base payload
-                first_response = lambda_responses[0]
-                if "body" in first_response:
-                    # Parse the body to get the actual data
-                    base_payload = json.loads(first_response["body"]) if isinstance(first_response["body"], str) else first_response["body"]
-                    
-                    # If there are multiple responses, collect all doc_locs
-                    all_doc_locs = []
-                    for response in lambda_responses:
-                        if "body" in response:
-                            response_data = json.loads(response["body"]) if isinstance(response["body"], str) else response["body"]
-                            if "doc_loc" in response_data:
-                                all_doc_locs.append(response_data["doc_loc"])
-                            if "doc_locs" in response_data:
-                                all_doc_locs.extend(response_data["doc_locs"])
-                    
-                    # Use the transformed format
-                    payload = {
-                        **base_payload,  # Use all fields from the first response
-                        "doc_locs": all_doc_locs  # Override with collected doc_locs
-                    }
-                    logger.info(f"🔄 Transformed payload: {payload}")
-                    
-            except Exception as e:
-                logger.error(f"❌ Failed to transform lambda responses: {e}")
-                return make_response(400, {"error": f"Failed to transform payload: {str(e)}"})
-        
         ingest_result = ingest_document(payload)
-        logger.info(f"📋 Ingest result type: {type(ingest_result)}")
-        logger.info(f"📋 Ingest result: {ingest_result}")
-        
+
         if hasattr(ingest_result, "results"):
             body = {
                 "summary": ingest_result.summary,
                 "results": [r.dict() for r in ingest_result.results]
             }
-            logger.info(f"✅ Ingestion complete → {body['summary']}")
             return make_response(200, body)
         else:
-            logger.warning(f"⚠️ Ingest result doesn't have results attribute, returning raw result")
             return make_response(ingest_result.statusCode, ingest_result.dict())
     except Exception as e:
         logger.error(f"💥 Error in handle_ingest_route: {e}", exc_info=True)
-        return make_response(500, {"error": f"Error in ingestion: {str(e)}", "details": str(e)})
+        return make_response(500, {"error": f"Error in ingestion: {str(e)}"})
+
 def handle_rag_query(payload: dict, event: dict) -> dict:
     try:
         query = payload.get("query")
         project_name = payload.get("project_name")
         session_id = payload.get("session_id")
-        
+
         if not all([query, project_name]):
             raise ValueError("Missing required fields: query, project_name")
-        
-        # Get model configuration from payload or use defaults
+
+        # Get model config
         llm_model = payload.get("llm_model", os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0"))
         embedding_model = payload.get("embedding_model", os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0"))
         region = payload.get("bedrock_region", os.getenv("BEDROCK_REGION", "ap-south-1"))
-        
-        logger.info(f"🧠 Initializing RAG with models: LLM={llm_model}, Embedding={embedding_model}, Region={region}")
-        
-        # Create ModelLoader with BedrockProvider
+
+        logger.info(f"🧠 Initializing RAG: LLM={llm_model}, Embedding={embedding_model}, Region={region}")
+
         model_loader = ModelLoader()
         bedrock_provider = BedrockProvider(
             embedding_model=embedding_model,
@@ -163,20 +128,16 @@ def handle_rag_query(payload: dict, event: dict) -> dict:
             logger=logger._logger if hasattr(logger, '_logger') else None
         )
         model_loader.register("bedrock", bedrock_provider, model_name=llm_model)
-        
-        # Initialize RAG pipeline with model loader and LLM model ID
+
         rag_pipeline = RAGPipeline(project_name=project_name, model_loader=model_loader, llm_model_id=llm_model)
-        
-        # Get chat history
+
         chat_history = []
         if session_id:
             try:
                 chat_history = rag_pipeline.get_enhanced_chat_history(session_id, limit=payload.get("chat_history_limit", 10))
-                logger.info(f"📚 Retrieved {len(chat_history)} chat history messages")
             except Exception as e:
                 logger.warning(f"Could not retrieve chat history: {e}")
-        
-        # Enhanced RAG parameters from payload
+
         rag_params = {
             "query": query,
             "chat_history": chat_history,
@@ -185,12 +146,9 @@ def handle_rag_query(payload: dict, event: dict) -> dict:
             "top_k": payload.get("top_k", 5),
             "enable_reranking": payload.get("enable_reranking", True)
         }
-        
-        logger.info(f"🔍 RAG Parameters: top_k={rag_params['top_k']}, reranking={rag_params['enable_reranking']}")
-        
-        # Run RAG pipeline with enhanced parameters
+
         result = rag_pipeline.run(**rag_params)
-        
+
         return make_response(200, {
             **result,
             "success": True,
@@ -203,38 +161,25 @@ def handle_rag_query(payload: dict, event: dict) -> dict:
         })
     except Exception as e:
         logger.error(f"💥 RAG query failed: {e}", exc_info=True)
-        return make_response(500, {
-            "error": str(e), 
-            "success": False,
-            "error_type": "rag_query_error"
-        })
+        return make_response(500, {"error": str(e), "success": False, "error_type": "rag_query_error"})
+
 def handle_rag_simple(payload: dict, event: dict) -> dict:
-    """Handle simple RAG query - basic semantic search for testing"""
+    """Simple RAG query"""
     try:
-        # Validate payload using Pydantic model
         try:
-            
-            
             validated_request = SimpleRAGRequest(**payload)
         except ValidationError as e:
-            logger.error(f"❌ Payload validation failed: {e}")
             return make_response(400, {
                 "error": "Invalid request format",
                 "validation_errors": e.errors(),
                 "success": False
             })
-        
-        logger.info(f"🚀 Simple RAG Query: {validated_request.query} for project: {validated_request.project_name}")
-        logger.info(f"👤 User context: {validated_request.user_id}, Session: {validated_request.session_id}")
-        logger.info(f"📋 UI Metadata: {validated_request.metadata}")
-        
-        # Extract model configuration from metadata or use defaults
+
         metadata = validated_request.metadata or {}
         llm_model = metadata.get("llm_model") or os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0")
         embedding_model = metadata.get("embedding_model") or os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
         region = metadata.get("bedrock_region") or os.getenv("BEDROCK_REGION", "ap-south-1")
-        
-        # Create ModelLoader with BedrockProvider
+
         model_loader = ModelLoader()
         bedrock_provider = BedrockProvider(
             embedding_model=embedding_model,
@@ -243,84 +188,59 @@ def handle_rag_simple(payload: dict, event: dict) -> dict:
             logger=logger._logger if hasattr(logger, '_logger') else None
         )
         model_loader.register("bedrock", bedrock_provider, model_name=llm_model)
-        
-        # Initialize Simple RAG pipeline
+
         simple_rag = SimpleRAGPipeline(project_name=validated_request.project_name, model_loader=model_loader)
-        
-        # Convert validated request back to dict for pipeline (preserving all original data)
-        enhanced_payload = validated_request.dict()
-        
-        # Run simple RAG pipeline
-        top_k = min(metadata.get("top_k", 3), 3)  # Cap at 3
+        top_k = min(metadata.get("top_k", 3), 3)
         pipeline_result = simple_rag.run(
-            query=validated_request.query, 
-            top_k=top_k, 
-            event=event, 
-            payload=enhanced_payload
+            query=validated_request.query,
+            top_k=top_k,
+            event=event,
+            payload=validated_request.dict()
         )
-        
-        # Just return the pipeline result - it already has everything we need
+
         return make_response(200, pipeline_result)
-        
+
     except Exception as e:
         logger.error(f"💥 Simple RAG query failed: {e}", exc_info=True)
         return make_response(500, {
-            "answer": {"summary": "An error occurred while processing your request. Please try again."},
-            "query": payload.get("query", ""),
+            "answer": {"summary": "An error occurred while processing your request."},
             "success": False,
             "error": str(e),
             "error_type": "simple_rag_error"
         })
+
 # =====================================================
 # MAIN LAMBDA HANDLER
 # =====================================================
 def lambda_handler(event, context):
     try:
-        route = event.get("route") or event.get("httpMethod", "").upper() + " " + event.get("path", "/unknown")
+        # Handle preflight CORS
+        if event.get("httpMethod") == "OPTIONS":
+            return make_response(200, {"message": "CORS preflight successful"})
+
+        route = event.get("route") or event.get("path", "")
         payload = event.get("payload") or event.get("body", {})
         if isinstance(payload, str):
             try:
                 payload = json.loads(payload)
             except json.JSONDecodeError:
                 return make_response(400, {"error": "Invalid JSON in request body"})
-        if event.get("httpMethod") == "OPTIONS":
-            return make_response(200, {"message": "CORS preflight successful"})
-        # Core API routes
+
+        # Routes
         if route == "/get_presigned_url": return handle_get_presigned_url(event, payload)
-        elif route == "/ingest_data": return handle_ingest_route(event, payload)
-        elif route == "/rag_query": return handle_rag_query(payload, event)
-        elif route == "/rag_simple": return handle_rag_simple(payload, event)  # New simple RAG route
-        # Health check
-        elif route == "/health":
+        if route == "/ingest_data": return handle_ingest_route(event, payload)
+        if route == "/rag_query": return handle_rag_query(payload, event)
+        if route == "/rag_simple": return handle_rag_simple(payload, event)
+        if route == "/health":
             return make_response(200, {
                 "status": "healthy",
                 "timestamp": datetime.datetime.utcnow().isoformat(),
                 "version": "ui_presigned_only_v1",
-                "lambda_context": {
-                    "function_name": context.function_name if context else "unknown",
-                    "remaining_time": context.get_remaining_time_in_millis() if context else None
-                }
+                "function_name": context.function_name if context else "unknown"
             })
-        elif route == "/routes":
-            available_routes = [
-                {"route": "/get_presigned_url", "methods": ["POST"], "description": "Generate presigned URL"},
-                {"route": "/ingest_data", "methods": ["POST"], "description": "Ingest document data"},
-                {"route": "/rag_query", "methods": ["POST"], "description": "Perform enhanced RAG query"},
-                {"route": "/rag_simple", "methods": ["POST"], "description": "Perform simple RAG query (testing)"},
-                {"route": "/health", "methods": ["GET"], "description": "Health check"},
-                {"route": "/routes", "methods": ["GET"], "description": "List available routes"}
-            ]
-            return make_response(200, {"available_routes": available_routes})
-        else:
-            return make_response(404, {
-                "error": f"Route '{route}' not found",
-                "available_routes_endpoint": "/routes",
-                "supported_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
-            })
+
+        return make_response(404, {"error": f"Route '{route}' not found"})
+
     except Exception as e:
         logger.error(f"💥 Critical error in lambda_handler: {e}", exc_info=True)
-        return make_response(500, {
-            "error": f"Lambda handler critical error: {str(e)}",
-            "success": False,
-            "error_type": "critical"
-        })
+        return make_response(500, {"error": f"Critical Lambda error: {str(e)}", "success": False})
