@@ -209,13 +209,13 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
 #   ]
 #   common_tags = var.common_tags
 # }
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = module.llm_lambda.lambda_function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
-}
+# resource "aws_lambda_permission" "api_gateway" {
+#   statement_id  = "AllowAPIGatewayInvoke"
+#   action        = "lambda:InvokeFunction"
+#   function_name = module.llm_lambda.lambda_function_name
+#   principal     = "apigateway.amazonaws.com"
+#   source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
+# }
 # ===============================
 # AMPLIFY MODULE (with base_directory)
 # ===============================
