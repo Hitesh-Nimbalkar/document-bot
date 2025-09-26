@@ -1,10 +1,17 @@
 // ====================================
 // API CONFIGURATION
 // ====================================
+// const BASE_URL =
+//     window?.API_BASE_URL ||                       // runtime-injected
+//     (typeof process !== "undefined" && process.env?.API_BASE_URL) || // Node
+//     "http://localhost:4000";                      // fallback
+
+// Set API Gateway endpoint as BASE_URL
 const BASE_URL =
     window?.API_BASE_URL ||                       // runtime-injected
-    (typeof process !== "undefined" && process.env?.API_BASE_URL) || // Node
-    "http://localhost:4000";                      // fallback
+    (typeof process !== "undefined" && process.env?.API_BASE_URL) ||
+    "https://c4sh73kd71.execute-api.ap-south-1.amazonaws.com/dev";  // 👈 your API Gateway URL
+
 
 window.API_ENDPOINTS = {
     GET_PRESIGNED_URL: "/get_presigned_url",
