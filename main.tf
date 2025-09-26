@@ -226,25 +226,27 @@ resource "aws_lambda_permission" "api_gateway" {
 # ===============================
 # AMPLIFY MODULE (with base_directory)
 # ===============================
-module "amplify_ui" {
-  source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.1.1"
-  organization  = var.organization
-  environment   = var.environment
-  project       = var.project
-  purpose       = "ui"
-  # GitHub connection
-  repo_url     = "https://github.com/Hitesh-Nimbalkar/document-bot"
-  branch_name  = "main"
-  framework    = "Web"
-  stage        = "DEVELOPMENT"
-  github_token = null   # if using Amplify GitHub App
-  enable_auto_build = false
-  # Deploy only /ui folder
-  base_directory = "/ui"
-  # Inject backend API URL into frontend
-  environment_variables = {
-    API_URL = module.api_gateway.api_gateway_url
-  }
-  custom_rules = []
-  tags         = var.common_tags
-}
+# module "amplify_ui" {
+#   source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.1.1"
+#   organization  = var.organization
+#   environment   = var.environment
+#   project       = var.project
+#   purpose       = "ui"
+#   # GitHub connection
+#   repo_url     = "https://github.com/Hitesh-Nimbalkar/document-bot"
+#   branch_name  = "main"
+#   framework    = "Web"
+#   stage        = "DEVELOPMENT"
+#   github_token = null   # if using Amplify GitHub App
+#   enable_auto_build = false
+#   # Deploy only /ui folder
+#   base_directory = "/ui"
+#   # Inject backend API URL into frontend
+#   environment_variables = {
+#     API_URL = module.api_gateway.api_gateway_url
+#   }
+#   custom_rules = []
+#   tags         = var.common_tags
+# }
+
+
