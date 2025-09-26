@@ -7,12 +7,13 @@
 //     "http://localhost:4000";                      // fallback
 
 // Set API Gateway endpoint as BASE_URL
+
+// Set API Gateway endpoint as BASE_URL
 const BASE_URL =
     window?.API_BASE_URL ||                       // runtime-injected
     (typeof process !== "undefined" && process.env?.API_BASE_URL) ||
-    "https://o7mffihfkj.execute-api.ap-south-1.amazonaws.com/dev/bot;  
-
-
+    "https://o7mffihfkj.execute-api.ap-south-1.amazonaws.com/dev/bot"
+    
 window.API_ENDPOINTS = {
     GET_PRESIGNED_URL: "/get_presigned_url",
     INGEST_DATA: "/ingest_data",
