@@ -190,32 +190,16 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
 # ===============================
 # API GATEWAY MODULE
 # ===============================
-module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.7"
-  aws_region   = local.account_region
-  organization = var.organization
-  environment  = var.environment
-  project      = var.project
-  purpose      = "document-portal"
-  stage_name = "dev"
-  endpoints = [
-    {
-      path                     = "ingest_data"
-      http_method              = "POST"
-      integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_invoke_arn
-      integration_http_method  = "POST"
-    },
-    {
-      path                     = "doc_compare"
-      http_method              = "POST"
-      integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_invoke_arn
-      integration_http_method  = "POST"
-    }
-  ]
-  common_tags = var.common_tags
-}
+# module "api_gateway" {
+#   source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.7"
+#   aws_region   = local.account_region
+#   organization = var.organization
+#   environment  = var.environment
+#   project      = var.project
+#   purpose      = "document-portal"
+#   stage_name = "dev"
+#   common_tags = var.common_tags
+# }
 resource "aws_lambda_permission" "api_gateway" {
   statement_id  = "AllowAPIGatewayInvoke"
   action        = "lambda:InvokeFunction"
