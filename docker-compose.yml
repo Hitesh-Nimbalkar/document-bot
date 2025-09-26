@@ -30,9 +30,8 @@ services:
       - "3000:80"
     depends_on:
       - proxy
-    # Mount if you want to live-edit HTML/JS/CSS during dev
     volumes:
-      - ./ui:/usr/share/nginx/html:ro
+      - ./ui:/usr/share/nginx/html:ro  # optional for local dev live-edit
 
   proxy:
     build:
@@ -48,10 +47,3 @@ services:
       LAMBDA_PORT: "8080"
     depends_on:
       - lambda
-
-networks:
-  default:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.25.0.0/16  # ensures IPv4 is explicitly enabled

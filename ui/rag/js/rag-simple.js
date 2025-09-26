@@ -12,21 +12,16 @@ document.addEventListener('DOMContentLoaded', () => {
 // ==================================================
 class RAGChatInterface {
     constructor() {
-        // === DOM References ===
         this.chatContainer = document.getElementById('chatContainer');
         this.chatForm = document.getElementById('chatForm');
         this.chatQuery = document.getElementById('chatQuery');
         this.sendBtn = document.getElementById('sendBtn');
         this.clearChatBtn = document.getElementById('clearChatBtn');
 
-        // === Init ===
         this.initializeEventListeners();
         this.loadModels();
     }
 
-    // --------------------------
-    // 🔹 Event Bindings
-    // --------------------------
     initializeEventListeners() {
         this.chatForm.addEventListener('submit', e => {
             e.preventDefault();
@@ -42,52 +37,41 @@ class RAGChatInterface {
         });
     }
 
-    // --------------------------
-    // 🔹 Model Loading
-    // --------------------------
     async loadModels() {
         try {
-            if (typeof loadAvailableModels === 'function') await loadAvailableModels();
-            else console.warn('⚠️ Model loading function not available');
+            if (typeof loadAvailableModels === 'function') {
+                await loadAvailableModels();
+            } else {
+                console.warn('⚠️ Model loading function not available');
+            }
         } catch (error) {
             console.error('Failed to load models:', error);
             this.addErrorMessage('Failed to load available models. Please refresh the page.');
         }
     }
 
-    // --------------------------
-    // 🔹 Validation
-    // --------------------------
     validateConfiguration() {
         const projectName = document.getElementById('projectName').value.trim();
         const llmModel = document.getElementById('llmModel').value;
         const embeddingModel = document.getElementById('embeddingModel').value;
-
         if (!projectName) throw new Error('Please enter a project name');
         if (!llmModel) throw new Error('Please select an AI model');
         if (!embeddingModel) throw new Error('Please select an embedding model');
-
         return { projectName, llmModel, embeddingModel };
     }
 
-    // --------------------------
-    // 🔹 Main Chat Submit Flow
-    // --------------------------
     async handleChatSubmit() {
         const query = this.chatQuery.value.trim();
         if (!query) return;
-
         try {
             const config = this.validateConfiguration();
             this.addUserMessage(query);
             this.chatQuery.value = '';
             this.autoResizeTextarea();
             this.setLoading(true);
-
             const loadingId = this.addLoadingMessage();
             const formData = await this.collectFormData(query, config);
             const response = await makeRagSimpleQuery(formData);
-
             this.removeMessage(loadingId);
             this.addAIResponse(response);
         } catch (error) {
@@ -100,17 +84,39 @@ class RAGChatInterface {
     }
 
     async collectFormData(query, config) {
-        const sessionId =
-            localStorage.getItem('session_id') ||
-            sessionStorage.getItem('session_id') ||
-            localStorage.getItem('user_session_id');
+        // 🔹 Directly fetch from localStorage
+        let sessionId = null;
+        const raw = localStorage.getItem('documentBot_session');
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed.sessionId) {
+                    sessionId = parsed.sessionId;
+                    // also set simple keys
+                    localStorage.setItem('session_id', sessionId);
+                    sessionStorage.setItem('session_id', sessionId);
+                }
+            } catch (err) {
+                console.warn('⚠️ Failed to parse documentBot_session', err);
+            }
+        }
+
+        if (!sessionId) {
+            sessionId = localStorage.getItem('session_id') ||
+                        sessionStorage.getItem('session_id');
+        }
 
         if (!sessionId) throw new Error('Session ID is required. Please log in first.');
 
-        const userId =
-            localStorage.getItem('user_id') ||
-            sessionStorage.getItem('user_id') ||
-            `user_${Date.now()}`;
+        let userId = `user_${Date.now()}`;
+        let userRole = 'customer';
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                if (parsed.user?.userId) userId = parsed.user.userId;
+                if (parsed.user?.role) userRole = parsed.user.role;
+            } catch {}
+        }
 
         const defaults = window.modelManager
             ? (await window.modelManager.getConfig()).default_configuration || {}
@@ -128,14 +134,11 @@ class RAGChatInterface {
                 temperature: parseFloat(document.getElementById('temperature').value),
                 max_tokens: parseInt(document.getElementById('maxTokens').value),
                 top_k: defaults.top_k || 3,
-                user_role: localStorage.getItem('user_role') || 'customer'
+                user_role: userRole
             }
         };
     }
 
-    // --------------------------
-    // 🔹 Chat Message Rendering
-    // --------------------------
     addUserMessage(msg) { this.#appendMessage('user', msg); }
 
     addAIResponse(response) {
@@ -143,7 +146,6 @@ class RAGChatInterface {
         let data = response?.body
             ? (typeof response.body === 'string' ? JSON.parse(response.body) : response.body)
             : response;
-
         const answer = data.answer?.summary || 'No response received';
         const metadata = data.metadata || data;
 
@@ -151,7 +153,6 @@ class RAGChatInterface {
         messageElement.className = 'chat-message ai-message';
         messageElement.id = messageId;
 
-        // --- main answer ---
         let html = `
             <div class="message-avatar"><i class="fas fa-robot"></i></div>
             <div class="message-content">
@@ -160,20 +161,13 @@ class RAGChatInterface {
                 </div>
         `;
 
-        // --- secondary info (smaller font) ---
         const metaPieces = [];
-
-        // ✅ response time
         if (metadata?.performance?.total_time) {
             metaPieces.push(`<span class="meta-item"><i class="fas fa-clock me-1"></i>${metadata.performance.total_time}s</span>`);
         }
-
-        // ✅ detected intent
         if (metadata?.detected_intent) {
             metaPieces.push(`<span class="meta-item"><i class="fas fa-bullseye me-1"></i>${this.#escape(metadata.detected_intent)}</span>`);
         }
-
-        // ✅ sources
         if (metadata?.sources?.length) {
             const src = metadata.sources.slice(0, 3).map(s => `
                 <div class="source-doc">
@@ -182,11 +176,7 @@ class RAGChatInterface {
                 </div>`).join('');
             metaPieces.push(`<div class="source-block"><small class="text-muted"><i class="fas fa-book-open me-1"></i>Sources:</small>${src}</div>`);
         }
-
-        if (metaPieces.length) {
-            html += `<div class="meta-info">${metaPieces.join('')}</div>`;
-        }
-
+        if (metaPieces.length) html += `<div class="meta-info">${metaPieces.join('')}</div>`;
         html += `<div class="message-time">${this.#time()}</div></div>`;
         messageElement.innerHTML = html;
 
@@ -213,32 +203,28 @@ class RAGChatInterface {
     }
 
     addErrorMessage(msg) { this.#appendMessage('error', msg); }
+
     removeMessage(id) { const el = document.getElementById(id); if (el) el.remove(); }
     removeLoadingMessage() { this.chatContainer.querySelector('.loading-message')?.remove(); }
+    clearChatHistory() { [...this.chatContainer.querySelectorAll('.chat-message:not(:first-child)')].forEach(m => m.remove()); }
 
-    clearChatHistory() {
-        [...this.chatContainer.querySelectorAll('.chat-message:not(:first-child)')].forEach(m => m.remove());
-    }
-
-    // --------------------------
-    // 🔹 UI Helpers
-    // --------------------------
     setLoading(isLoading) {
         this.sendBtn.disabled = isLoading;
         this.chatQuery.disabled = isLoading;
-        this.sendBtn.innerHTML = isLoading ? '<i class="fas fa-spinner fa-spin"></i>' : '<i class="fas fa-paper-plane"></i>';
+        this.sendBtn.innerHTML = isLoading
+            ? '<i class="fas fa-spinner fa-spin"></i>'
+            : '<i class="fas fa-paper-plane"></i>';
     }
+
     autoResizeTextarea() {
         this.chatQuery.style.height = 'auto';
         this.chatQuery.style.height = Math.min(this.chatQuery.scrollHeight, 120) + 'px';
     }
+
     scrollToBottom() {
         setTimeout(() => this.chatContainer.scrollTop = this.chatContainer.scrollHeight, 100);
     }
 
-    // --------------------------
-    // 🔹 Private Methods
-    // --------------------------
     #appendMessage(type, msg) {
         const id = this.#createMsgId();
         const el = document.createElement('div');
@@ -253,6 +239,7 @@ class RAGChatInterface {
         this.chatContainer.appendChild(el);
         this.scrollToBottom();
     }
+
     #createMsgId() { return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`; }
     #time() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
     #escape(txt) { const d = document.createElement('div'); d.textContent = txt; return d.innerHTML; }
@@ -262,20 +249,55 @@ class RAGChatInterface {
 }
 
 // ==================================================
-// 🔧 SHARED UTILITIES (smaller section)
+// 🔧 SHARED UTILITIES
 // ==================================================
 async function makeRagSimpleQuery(payload) {
-    return makeApiRequest(window.API_ENDPOINTS.RAG_SIMPLE, payload);
+    if (typeof makeApiRequest === 'function' && window.API_ENDPOINTS) {
+        return makeApiRequest(window.API_ENDPOINTS.RAG_SIMPLE, payload);
+    } else {
+        throw new Error('API configuration not available. Please ensure api-config.js is loaded.');
+    }
 }
 
 function loadUserSession() {
-    const sessionId = localStorage.getItem('session_id') || sessionStorage.getItem('session_id') || localStorage.getItem('user_session_id');
+    let sessionId = null;
+    const raw = localStorage.getItem('documentBot_session');
+    if (raw) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed.sessionId) {
+                sessionId = parsed.sessionId;
+                localStorage.setItem('session_id', sessionId);
+                sessionStorage.setItem('session_id', sessionId);
+            }
+        } catch {}
+    }
+
+    if (!sessionId) {
+        sessionId = localStorage.getItem('session_id') ||
+                    sessionStorage.getItem('session_id');
+    }
+
     const warningArea = document.getElementById('sessionWarning');
-    if (!sessionId && warningArea) {
+    if (!sessionId) {
         console.warn('⚠️ No session ID found - user must log in');
-        warningArea.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-1"></i>Please log in to use RAG</div>';
-        warningArea.style.display = 'block';
-    } else if (sessionId && warningArea) warningArea.style.display = 'none';
+        if (warningArea) {
+            warningArea.innerHTML =
+                '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-1"></i>Please log in to use RAG</div>';
+            warningArea.style.display = 'block';
+        }
+    } else {
+        if (warningArea) warningArea.style.display = 'none';
+        if (raw) {
+            try {
+                const parsed = JSON.parse(raw);
+                const username = parsed.user?.username;
+                const userElement = document.getElementById('currentUser');
+                if (username && userElement) userElement.textContent = username;
+            } catch {}
+        }
+        console.log('✅ Session loaded for RAG:', sessionId);
+    }
 }
 
 function getAuthToken() {

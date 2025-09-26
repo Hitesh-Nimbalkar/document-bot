@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -81,26 +82,54 @@
       </button>
     </form>
   </div>
-
+  <!-- Load API config for session management -->
+  <script src="api-config.js"></script>
+  
   <script>
-    // Fallback saveSession if api-config.js is missing
-    function saveSession(userData) {
-      const sessionData = {
-        ...userData,
-        sessionId: "session_" + Date.now(),
-        loginTime: Date.now()
-      };
-      localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
-      console.log("✅ Session saved:", sessionData);
+    // Generate a proper session ID
+    function generateSessionId() {
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substr(2, 9);
+      return `sess_${timestamp}_${random}`;
     }
-
+    // Save session using proper session management
+    function saveSession(userData) {
+      try {
+        // Generate and set session ID using api-config.js functions
+        const sessionId = generateSessionId();
+        
+        // Use the proper session management from api-config.js
+        if (window.setSessionId && window.setSessionId(sessionId)) {
+          // Also save additional user data separately if needed
+          const sessionData = {
+            ...userData,
+            sessionId: sessionId,
+            loginTime: Date.now()
+          };
+          localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
+          console.log("✅ Session saved with ID:", sessionId);
+          return sessionId;
+        } else {
+          throw new Error("Failed to set session ID");
+        }
+      } catch (error) {
+        console.error("❌ Failed to save session:", error);
+        // Fallback to old method if api-config.js is not loaded
+        const sessionData = {
+          ...userData,
+          sessionId: generateSessionId(),
+          loginTime: Date.now()
+        };
+        localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
+        return sessionData.sessionId;
+      }
+    }
     const loginForm = document.getElementById('loginForm');
     const loginBtn = document.getElementById('loginBtn');
     const loginText = document.getElementById('loginText');
     const loadingSpinner = document.getElementById('loadingSpinner');
     const errorMessage = document.getElementById('errorMessage');
     const successMessage = document.getElementById('successMessage');
-
     function showError(msg) {
       errorMessage.textContent = msg; errorMessage.style.display = 'block';
       successMessage.style.display = 'none';
@@ -114,25 +143,26 @@
       loginText.style.display = isLoading ? 'none' : 'inline';
       loadingSpinner.style.display = isLoading ? 'inline-block' : 'none';
     }
-
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value.trim();
       if (!username || !password) { showError("Please enter both username and password"); return; }
-
       setLoading(true);
       await new Promise(r => setTimeout(r, 1000)); // simulate login delay
-
-      saveSession({ user: { username, role: "user" }, isLoggedIn: true });
-      showSuccess("Logging in... Session created!");
-
-      setTimeout(() => {
-        window.location.href = "dashboard.html";  // ✅ redirect works
-      }, 1500);
-
+      try {
+        const sessionId = saveSession({ user: { username, role: "user" }, isLoggedIn: true });
+        showSuccess(`Logging in... Session created! (ID: ${sessionId.substr(0, 12)}...)`);
+        setTimeout(() => {
+          window.location.href = "dashboard.html";
+        }, 1500);
+      } catch (error) {
+        console.error("Login error:", error);
+        showError("Failed to create session. Please try again.");
+      }
       setLoading(false);
     });
   </script>
 </body>
 </html>
+

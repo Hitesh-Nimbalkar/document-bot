@@ -1,8 +1,4 @@
 
-
-
-
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -142,24 +138,115 @@
     </div>
     <script src="api-config.js"></script>
     <script>
+        // Authentication functions
+        function requireAuth() {
+            try {
+                console.log('🔍 Checking authentication...');
+                
+                // Debug: Check what's available
+                console.log('API functions available:', {
+                    isSessionValid: typeof window.isSessionValid,
+                    getSessionId: typeof window.getSessionId
+                });
+                
+                // Get session data from localStorage first
+                const sessionData = localStorage.getItem("documentBot_session");
+                console.log('📦 Raw session data from localStorage:', sessionData);
+                
+                if (sessionData) {
+                    const parsedSession = JSON.parse(sessionData);
+                    console.log('📦 Parsed session data:', parsedSession);
+                    
+                    // Check if session is valid using api-config.js if available
+                    if (window.isSessionValid && !window.isSessionValid()) {
+                        console.warn('⚠️ Session ID not found in api-config storage');
+                        // But we have session data, so let's check if we can restore it
+                        if (parsedSession.sessionId && window.setSessionId) {
+                            console.log('🔄 Attempting to restore session ID...');
+                            window.setSessionId(parsedSession.sessionId);
+                        }
+                    }
+                    
+                    return parsedSession;
+                }
+                
+                // If no session data found, redirect to login
+                console.warn('⚠️ No session data found');
+                alert('Session expired. Please login again.');
+                window.location.href = 'index.html';
+                return null;
+            } catch (error) {
+                console.error('❌ Error checking authentication:', error);
+                window.location.href = 'index.html';
+                return null;
+            }
+        }
+        function logout() {
+            try {
+                // Clear session using api-config.js functions
+                if (window.clearSession) {
+                    window.clearSession();
+                }
+                
+                // Clear additional session data
+                localStorage.removeItem("documentBot_session");
+                sessionStorage.clear();
+                
+                // Redirect to login
+                window.location.href = 'index.html';
+            } catch (error) {
+                console.error('Error during logout:', error);
+                // Force redirect even if error occurs
+                window.location.href = 'index.html';
+            }
+        }
         // Check authentication and load user info
         document.addEventListener('DOMContentLoaded', function() {
-            // Require authentication
-            const session = requireAuth();
+            console.log('🔍 Dashboard loading - checking authentication...');
             
-            if (session) {
-                // Display user information
-                document.getElementById('username').textContent = session.user.username;
-                document.getElementById('sessionId').textContent = session.sessionId || 'Not available';
+            // Add a small delay to ensure api-config.js is fully loaded
+            setTimeout(() => {
+                const session = requireAuth();
                 
-                // Format login time
-                if (session.loginTime) {
-                    const loginDate = new Date(session.loginTime);
-                    document.getElementById('loginTime').textContent = loginDate.toLocaleString();
+                if (session) {
+                    console.log('✅ Session found:', session);
+                    
+                    // Display user information
+                    const username = session.user?.username || 'Unknown User';
+                    document.getElementById('username').textContent = username;
+                    console.log('👤 Username set to:', username);
+                    
+                    // Get session ID - try multiple sources
+                    let sessionId = 'Not available';
+                    
+                    if (window.getSessionId) {
+                        sessionId = window.getSessionId() || session.sessionId || 'Not available';
+                    } else {
+                        sessionId = session.sessionId || 'Not available';
+                    }
+                    
+                    document.getElementById('sessionId').textContent = sessionId;
+                    console.log('🆔 Session ID set to:', sessionId);
+                    
+                    // Format login time
+                    let loginTimeText = 'Not available';
+                    if (session.loginTime) {
+                        try {
+                            const loginDate = new Date(session.loginTime);
+                            loginTimeText = loginDate.toLocaleString();
+                        } catch (error) {
+                            console.error('Error formatting login time:', error);
+                        }
+                    }
+                    
+                    document.getElementById('loginTime').textContent = loginTimeText;
+                    console.log('⏰ Login time set to:', loginTimeText);
+                    
+                    console.log('✅ Dashboard loaded successfully');
                 } else {
-                    document.getElementById('loginTime').textContent = 'Not available';
+                    console.warn('⚠️ No valid session found');
                 }
-            }
+            }, 100); // Small delay to ensure api-config.js is loaded
         });
         // Logout handler
         function handleLogout() {
@@ -170,4 +257,5 @@
     </script>
 </body>
 </html>
+
 
