@@ -233,8 +233,8 @@ module "amplify_ui" {
   project       = var.project
   purpose       = "ui"
   # GitHub connection
-  repo_url     = "https://github.com/<your-org>/<your-repo>.git"
-  branch_name  = "feature/ui"
+  repo_url     = "https://github.com/Hitesh-Nimbalkar/document-bot"
+  branch_name  = "main"
   framework    = "Web"
   stage        = "DEVELOPMENT"
   github_token = null   # if using Amplify GitHub App

@@ -4,9 +4,11 @@
 // API CONFIGURATION
 // ====================================
 // Always point to backend (Lambda emulator / API server)
-const BASE_URL = "http://localhost:4000";
-console.log("🌐 API Base URL:", BASE_URL);
-// ====================================
+const BASE_URL =
+    window?.API_BASE_URL ||                       // if injected at runtime (browser env)
+    (typeof process !== "undefined" && process.env?.API_BASE_URL) || // if running in Node
+    "http://localhost:4000";                      // fallback default
+
 // API ENDPOINTS
 // ====================================
 window.API_ENDPOINTS = {
