@@ -14,6 +14,7 @@ const BASE_URL =
     (typeof process !== "undefined" && process.env?.API_BASE_URL) ||
     "https://j6ufq5gja9.execute-api.ap-south-1.amazonaws.com/dev/bot"
     
+    
 window.API_ENDPOINTS = {
     GET_PRESIGNED_URL: "/get_presigned_url",
     INGEST_DATA: "/ingest_data",
