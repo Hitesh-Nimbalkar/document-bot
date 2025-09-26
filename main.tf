@@ -198,6 +198,15 @@ module "api_gateway" {
   project      = var.project
   purpose      = "document-portal"
   stage_name = "dev"
+  endpoints = [
+    {
+      path                     = ""
+      http_method              = "POST"
+      integration_type         = "AWS_PROXY"
+      integration_uri          = module.llm_lambda.lambda_invoke_arn
+      integration_http_method  = "POST"
+    }
+  ]
   common_tags = var.common_tags
 }
 resource "aws_lambda_permission" "api_gateway" {
