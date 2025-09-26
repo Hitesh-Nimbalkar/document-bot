@@ -66,7 +66,7 @@ resource "aws_dynamodb_table" "metadata" {
 #  LLM LAMBDA FUNCTION (using platform lambda module)
 # ============================================================================
 module "llm_lambda" {
-  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.1"
+  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.6"
   organization          = var.organization
   project               = var.project
   environment           = var.environment
