@@ -1,192 +1,285 @@
-// ====================================
-// RAG SIMPLE QUERY INTERFACE
-// ====================================
-
-document.addEventListener('DOMContentLoaded', async function() {
-    await initializeRagSimple();
+// ==================================================
+// 🚀 RAG CHAT INTERFACE - MAIN ENTRY
+// ==================================================
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('🚀 Initializing RAG Chat interface');
+    new RAGChatInterface();
+    loadUserSession();
 });
 
-async function initializeRagSimple() {
-    console.log('🚀 Initializing RAG Simple interface');
-    
-    // Setup form submission
-    const form = document.getElementById('ragSimpleForm');
-    if (form) {
-        form.addEventListener('submit', handleFormSubmit);
-    }
-    
-    // Models are already handled by ModelManager
-    loadUserSession();
-}
+// ==================================================
+// 🧠 RAG CHAT INTERFACE CLASS (Core Logic)
+// ==================================================
+class RAGChatInterface {
+    constructor() {
+        // === DOM References ===
+        this.chatContainer = document.getElementById('chatContainer');
+        this.chatForm = document.getElementById('chatForm');
+        this.chatQuery = document.getElementById('chatQuery');
+        this.sendBtn = document.getElementById('sendBtn');
+        this.clearChatBtn = document.getElementById('clearChatBtn');
 
-async function handleFormSubmit(event) {
-    event.preventDefault();
-    
-    const submitBtn = document.getElementById('submitBtn');
-    const originalBtnText = submitBtn.innerHTML;
-    
-    try {
-        submitBtn.disabled = true;
-        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Querying...';
-        
-        showLoadingState();
-        
-        const formData = await collectFormData();
-        
-        // Validate required fields
-        if (!formData.query || !formData.project_name || !formData.llm_model || !formData.embedding_model) {
-            throw new Error('Please fill in all required fields');
+        // === Init ===
+        this.initializeEventListeners();
+        this.loadModels();
+    }
+
+    // --------------------------
+    // 🔹 Event Bindings
+    // --------------------------
+    initializeEventListeners() {
+        this.chatForm.addEventListener('submit', e => {
+            e.preventDefault();
+            this.handleChatSubmit();
+        });
+        this.clearChatBtn.addEventListener('click', () => this.clearChatHistory());
+        this.chatQuery.addEventListener('input', () => this.autoResizeTextarea());
+        this.chatQuery.addEventListener('keypress', e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.handleChatSubmit();
+            }
+        });
+    }
+
+    // --------------------------
+    // 🔹 Model Loading
+    // --------------------------
+    async loadModels() {
+        try {
+            if (typeof loadAvailableModels === 'function') await loadAvailableModels();
+            else console.warn('⚠️ Model loading function not available');
+        } catch (error) {
+            console.error('Failed to load models:', error);
+            this.addErrorMessage('Failed to load available models. Please refresh the page.');
         }
-        
-        console.log('📤 Sending RAG query:', formData);
-        
-        // ✅ Always send to backend via api-config.js wrapper
-        const response = await makeRagSimpleQuery(formData);
-        displayResults(response);
-        
-    } catch (error) {
-        console.error('❌ RAG query failed:', error);
-        showError(error.message || 'Query failed');
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.innerHTML = originalBtnText;
+    }
+
+    // --------------------------
+    // 🔹 Validation
+    // --------------------------
+    validateConfiguration() {
+        const projectName = document.getElementById('projectName').value.trim();
+        const llmModel = document.getElementById('llmModel').value;
+        const embeddingModel = document.getElementById('embeddingModel').value;
+
+        if (!projectName) throw new Error('Please enter a project name');
+        if (!llmModel) throw new Error('Please select an AI model');
+        if (!embeddingModel) throw new Error('Please select an embedding model');
+
+        return { projectName, llmModel, embeddingModel };
+    }
+
+    // --------------------------
+    // 🔹 Main Chat Submit Flow
+    // --------------------------
+    async handleChatSubmit() {
+        const query = this.chatQuery.value.trim();
+        if (!query) return;
+
+        try {
+            const config = this.validateConfiguration();
+            this.addUserMessage(query);
+            this.chatQuery.value = '';
+            this.autoResizeTextarea();
+            this.setLoading(true);
+
+            const loadingId = this.addLoadingMessage();
+            const formData = await this.collectFormData(query, config);
+            const response = await makeRagSimpleQuery(formData);
+
+            this.removeMessage(loadingId);
+            this.addAIResponse(response);
+        } catch (error) {
+            console.error('Chat error:', error);
+            this.removeLoadingMessage();
+            this.addErrorMessage(error.message || 'Error processing request');
+        } finally {
+            this.setLoading(false);
+        }
+    }
+
+    async collectFormData(query, config) {
+        const sessionId =
+            localStorage.getItem('session_id') ||
+            sessionStorage.getItem('session_id') ||
+            localStorage.getItem('user_session_id');
+
+        if (!sessionId) throw new Error('Session ID is required. Please log in first.');
+
+        const userId =
+            localStorage.getItem('user_id') ||
+            sessionStorage.getItem('user_id') ||
+            `user_${Date.now()}`;
+
+        const defaults = window.modelManager
+            ? (await window.modelManager.getConfig()).default_configuration || {}
+            : {};
+
+        return {
+            project_name: config.projectName,
+            user_id: userId,
+            session_id: sessionId,
+            query,
+            metadata: {
+                llm_model: config.llmModel,
+                embedding_model: config.embeddingModel,
+                bedrock_region: defaults.bedrock_region || 'ap-south-1',
+                temperature: parseFloat(document.getElementById('temperature').value),
+                max_tokens: parseInt(document.getElementById('maxTokens').value),
+                top_k: defaults.top_k || 3,
+                user_role: localStorage.getItem('user_role') || 'customer'
+            }
+        };
+    }
+
+    // --------------------------
+    // 🔹 Chat Message Rendering
+    // --------------------------
+    addUserMessage(msg) { this.#appendMessage('user', msg); }
+
+    addAIResponse(response) {
+        const messageId = this.#createMsgId();
+        let data = response?.body
+            ? (typeof response.body === 'string' ? JSON.parse(response.body) : response.body)
+            : response;
+
+        const answer = data.answer?.summary || 'No response received';
+        const metadata = data.metadata || data;
+
+        const messageElement = document.createElement('div');
+        messageElement.className = 'chat-message ai-message';
+        messageElement.id = messageId;
+
+        // --- main answer ---
+        let html = `
+            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">
+                <div class="message-text answer-text">
+                    ${this.#formatResponse(answer)}
+                </div>
+        `;
+
+        // --- secondary info (smaller font) ---
+        const metaPieces = [];
+
+        // ✅ response time
+        if (metadata?.performance?.total_time) {
+            metaPieces.push(`<span class="meta-item"><i class="fas fa-clock me-1"></i>${metadata.performance.total_time}s</span>`);
+        }
+
+        // ✅ detected intent
+        if (metadata?.detected_intent) {
+            metaPieces.push(`<span class="meta-item"><i class="fas fa-bullseye me-1"></i>${this.#escape(metadata.detected_intent)}</span>`);
+        }
+
+        // ✅ sources
+        if (metadata?.sources?.length) {
+            const src = metadata.sources.slice(0, 3).map(s => `
+                <div class="source-doc">
+                    <span class="source-title">${this.#escape(s.filename || s.title || 'Document')}</span>
+                    <span class="source-score">${(s.score * 100).toFixed(1)}%</span>
+                </div>`).join('');
+            metaPieces.push(`<div class="source-block"><small class="text-muted"><i class="fas fa-book-open me-1"></i>Sources:</small>${src}</div>`);
+        }
+
+        if (metaPieces.length) {
+            html += `<div class="meta-info">${metaPieces.join('')}</div>`;
+        }
+
+        html += `<div class="message-time">${this.#time()}</div></div>`;
+        messageElement.innerHTML = html;
+
+        this.chatContainer.appendChild(messageElement);
+        this.scrollToBottom();
+    }
+
+    addLoadingMessage() {
+        const id = this.#createMsgId();
+        const el = document.createElement('div');
+        el.className = 'chat-message ai-message loading-message';
+        el.id = id;
+        el.innerHTML = `
+            <div class="message-avatar"><i class="fas fa-robot"></i></div>
+            <div class="message-content">
+                <span>AI is thinking</span>
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>
+                </div>
+            </div>`;
+        this.chatContainer.appendChild(el);
+        this.scrollToBottom();
+        return id;
+    }
+
+    addErrorMessage(msg) { this.#appendMessage('error', msg); }
+    removeMessage(id) { const el = document.getElementById(id); if (el) el.remove(); }
+    removeLoadingMessage() { this.chatContainer.querySelector('.loading-message')?.remove(); }
+
+    clearChatHistory() {
+        [...this.chatContainer.querySelectorAll('.chat-message:not(:first-child)')].forEach(m => m.remove());
+    }
+
+    // --------------------------
+    // 🔹 UI Helpers
+    // --------------------------
+    setLoading(isLoading) {
+        this.sendBtn.disabled = isLoading;
+        this.chatQuery.disabled = isLoading;
+        this.sendBtn.innerHTML = isLoading ? '<i class="fas fa-spinner fa-spin"></i>' : '<i class="fas fa-paper-plane"></i>';
+    }
+    autoResizeTextarea() {
+        this.chatQuery.style.height = 'auto';
+        this.chatQuery.style.height = Math.min(this.chatQuery.scrollHeight, 120) + 'px';
+    }
+    scrollToBottom() {
+        setTimeout(() => this.chatContainer.scrollTop = this.chatContainer.scrollHeight, 100);
+    }
+
+    // --------------------------
+    // 🔹 Private Methods
+    // --------------------------
+    #appendMessage(type, msg) {
+        const id = this.#createMsgId();
+        const el = document.createElement('div');
+        el.className = `chat-message ${type}-message`;
+        el.id = id;
+        el.innerHTML = `
+            <div class="message-avatar">${type === 'user' ? '<i class="fas fa-user"></i>' : '<i class="fas fa-robot"></i>'}</div>
+            <div class="message-content">
+                <div class="message-text">${this.#escape(msg)}</div>
+                <div class="message-time">${this.#time()}</div>
+            </div>`;
+        this.chatContainer.appendChild(el);
+        this.scrollToBottom();
+    }
+    #createMsgId() { return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`; }
+    #time() { return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+    #escape(txt) { const d = document.createElement('div'); d.textContent = txt; return d.innerHTML; }
+    #formatResponse(text) {
+        return text.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br>').replace(/^/, '<p>').replace(/$/, '</p>');
     }
 }
 
-async function collectFormData() {
-    const sessionId = localStorage.getItem('session_id') || 
-                     sessionStorage.getItem('session_id') || 
-                     localStorage.getItem('user_session_id');
-    
-    if (!sessionId) {
-        throw new Error('Session ID is required. Please log in first.');
-    }
-    
-    // Get default config from ModelManager instead of duplicating
-    const config = await window.modelManager.getConfig();
-    const defaults = config.default_configuration || {};
-    
-    return {
-        query: document.getElementById('query').value.trim(),
-        project_name: document.getElementById('projectName').value.trim(),
-        llm_model: document.getElementById('llmModel').value,
-        embedding_model: document.getElementById('embeddingModel').value,
-        bedrock_region: defaults.bedrock_region || 'ap-south-1',
-        temperature: parseFloat(document.getElementById('temperature').value),
-        max_tokens: parseInt(document.getElementById('maxTokens').value),
-        top_k: defaults.top_k || 3,
-        session_id: sessionId
-    };
-}
-
-// ✅ Use shared API wrapper from api-config.js
+// ==================================================
+// 🔧 SHARED UTILITIES (smaller section)
+// ==================================================
 async function makeRagSimpleQuery(payload) {
-    // This will hit http://localhost:4000/
     return makeApiRequest(window.API_ENDPOINTS.RAG_SIMPLE, payload);
 }
 
-function showLoadingState() {
-    document.getElementById('loadingSpinner').style.display = 'block';
-    document.getElementById('resultsContent').style.display = 'none';
-    document.getElementById('errorMessage').style.display = 'none';
-    const placeholderState = document.getElementById('placeholderState');
-    if (placeholderState) placeholderState.style.display = 'none';
-}
-
-function displayResults(response) {
-    document.getElementById('loadingSpinner').style.display = 'none';
-    document.getElementById('resultsContent').style.display = 'block';
-    document.getElementById('errorMessage').style.display = 'none';
-    
-    let data = response;
-    if (typeof response.body === 'string') {
-        data = JSON.parse(response.body);
-    } else if (response.body) {
-        data = response.body;
-    }
-
-    // ✅ Show answer
-    const answerSummary = data.answer && data.answer.summary 
-        ? data.answer.summary 
-        : 'No answer provided';
-    document.getElementById('answerText').innerHTML = answerSummary;
-
-    // ✅ Show metrics
-    const perf = data.performance || {};
-    document.getElementById('processingTime').textContent = 
-        perf.total_time ? `${perf.total_time}s` : 'N/A';
-    document.getElementById('documentsFound').textContent = 
-        data.total_sources || 0;
-    document.getElementById('metricsRow').style.display = 'block';
-
-    // ✅ Show sources
-    const sources = data.sources || [];
-    if (sources.length > 0) {
-        document.getElementById('sourceDocuments').innerHTML = formatSources(sources);
-        document.getElementById('sourceSection').style.display = 'block';
-    } else {
-        document.getElementById('sourceSection').style.display = 'none';
-    }
-}
-
-function formatSources(sources) {
-    return sources.map((source, index) => {
-        const fileName = source.filename || `Document ${index + 1}`;
-        const content = source.content || 'No content';
-        const score = source.score ? `(${Math.round(source.score * 100)}%)` : '';
-        
-        return `
-            <div class="source-doc-card mb-3">
-                <h6><i class="fas fa-file-alt me-2"></i>${fileName} ${score}</h6>
-                <p class="text-muted">${content.substring(0, 200)}...</p>
-            </div>
-        `;
-    }).join('');
-}
-
-function showError(message) {
-    document.getElementById('loadingSpinner').style.display = 'none';
-    document.getElementById('resultsContent').style.display = 'none';
-    document.getElementById('errorMessage').style.display = 'block';
-    const placeholderState = document.getElementById('placeholderState');
-    if (placeholderState) placeholderState.style.display = 'none';
-    document.getElementById('errorText').textContent = message;
-}
-
 function loadUserSession() {
-    const sessionId = localStorage.getItem('session_id') || 
-                     sessionStorage.getItem('session_id') || 
-                     localStorage.getItem('user_session_id');
-    
-    if (!sessionId) {
+    const sessionId = localStorage.getItem('session_id') || sessionStorage.getItem('session_id') || localStorage.getItem('user_session_id');
+    const warningArea = document.getElementById('sessionWarning');
+    if (!sessionId && warningArea) {
         console.warn('⚠️ No session ID found - user must log in');
-        const warningArea = document.getElementById('sessionWarning');
-        if (warningArea) {
-            warningArea.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-1"></i>Please log in to use RAG functionality</div>';
-            warningArea.style.display = 'block';
-        }
-    } else {
-        console.log('✅ Session ID found - user authenticated');
-        const warningArea = document.getElementById('sessionWarning');
-        if (warningArea) {
-            warningArea.style.display = 'none';
-        }
-    }
+        warningArea.innerHTML = '<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-1"></i>Please log in to use RAG</div>';
+        warningArea.style.display = 'block';
+    } else if (sessionId && warningArea) warningArea.style.display = 'none';
 }
 
-function logout() {
-    try {
-        if (typeof window.logout === 'function') {
-            window.logout();
-        } else {
-            localStorage.clear();
-            sessionStorage.clear();
-            window.location.href = '../index.html';
-        }
-    } catch (error) {
-        console.error('❌ Logout error:', error);
-        window.location.href = '../index.html';
-    }
+function getAuthToken() {
+    return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || '';
 }
 
 console.log('✅ RAG Simple loaded - Using ModelManager');

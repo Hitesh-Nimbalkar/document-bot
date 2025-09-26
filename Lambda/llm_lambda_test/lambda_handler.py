@@ -1,5 +1,4 @@
 
-
 # =====================================================
 # UI MODULE IMPORTS (only get_presigned_url)
 # =====================================================
@@ -26,11 +25,12 @@ import uuid
 import datetime
 import boto3
 from botocore.exceptions import ClientError
+from pydantic import ValidationError
 # ---------------------------
 # Logger & Config (ENV VARS)
 # ---------------------------
 DOCUMENTS_S3_BUCKET = os.environ.get("DOCUMENTS_S3_BUCKET")
-TEMP_PREFIX = os.getenv("TEMP_DATA_KEY", "project-data/uploads/temp")
+TEMP_PREFIX = os.getenv("TEMP_DATA_KEY")
 # ---------------------------
 # Local imports
 # ---------------------------
@@ -41,6 +41,7 @@ from rag_simple.rag_simple import SimpleRAGPipeline  # Fixed import path
 from src.data_ingestion import ingest_document
 from src.data_analysis import DocumentAnalyzer
 from utils.model_loader import ModelLoader, BedrockProvider
+from models.models import SimpleRAGRequest
 # ---------------------------
 # Logger instance
 # ---------------------------
@@ -209,21 +210,29 @@ def handle_rag_query(payload: dict, event: dict) -> dict:
         })
 def handle_rag_simple(payload: dict, event: dict) -> dict:
     """Handle simple RAG query - basic semantic search for testing"""
-    import time
-    
     try:
-        query = payload.get("query")
-        project_name = payload.get("project_name")
+        # Validate payload using Pydantic model
+        try:
+            
+            
+            validated_request = SimpleRAGRequest(**payload)
+        except ValidationError as e:
+            logger.error(f"❌ Payload validation failed: {e}")
+            return make_response(400, {
+                "error": "Invalid request format",
+                "validation_errors": e.errors(),
+                "success": False
+            })
         
-        if not all([query, project_name]):
-            raise ValueError("Missing required fields: query, project_name")
+        logger.info(f"🚀 Simple RAG Query: {validated_request.query} for project: {validated_request.project_name}")
+        logger.info(f"👤 User context: {validated_request.user_id}, Session: {validated_request.session_id}")
+        logger.info(f"📋 UI Metadata: {validated_request.metadata}")
         
-        logger.info(f"🚀 Simple RAG Query: {query} for project: {project_name}")
-        
-        # Get model configuration from payload or use defaults
-        llm_model = payload.get("llm_model", os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0"))
-        embedding_model = payload.get("embedding_model", os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0"))
-        region = payload.get("bedrock_region", os.getenv("BEDROCK_REGION", "ap-south-1"))
+        # Extract model configuration from metadata or use defaults
+        metadata = validated_request.metadata or {}
+        llm_model = metadata.get("llm_model") or os.getenv("DEFAULT_LLM_MODEL", "anthropic.claude-3-sonnet-20240229-v1:0")
+        embedding_model = metadata.get("embedding_model") or os.getenv("DEFAULT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
+        region = metadata.get("bedrock_region") or os.getenv("BEDROCK_REGION", "ap-south-1")
         
         # Create ModelLoader with BedrockProvider
         model_loader = ModelLoader()
@@ -236,32 +245,31 @@ def handle_rag_simple(payload: dict, event: dict) -> dict:
         model_loader.register("bedrock", bedrock_provider, model_name=llm_model)
         
         # Initialize Simple RAG pipeline
-        simple_rag = SimpleRAGPipeline(project_name=project_name, model_loader=model_loader)
+        simple_rag = SimpleRAGPipeline(project_name=validated_request.project_name, model_loader=model_loader)
+        
+        # Convert validated request back to dict for pipeline (preserving all original data)
+        enhanced_payload = validated_request.dict()
         
         # Run simple RAG pipeline
-        top_k = min(payload.get("top_k", 3), 3)  # Cap at 3
-        result = simple_rag.run(query=query, top_k=top_k, event=event, payload=payload)
+        top_k = min(metadata.get("top_k", 3), 3)  # Cap at 3
+        pipeline_result = simple_rag.run(
+            query=validated_request.query, 
+            top_k=top_k, 
+            event=event, 
+            payload=enhanced_payload
+        )
         
-        # Lambda handler formats the final response
-        return make_response(200, {
-            **result,
-            "success": True,
-            "pipeline_version": "simple_v1",
-            "models_used": {
-                "llm_model": llm_model,
-                "embedding_model": embedding_model,
-                "region": region
-            },
-            "timestamp": time.time()
-        })
+        # Just return the pipeline result - it already has everything we need
+        return make_response(200, pipeline_result)
         
     except Exception as e:
         logger.error(f"💥 Simple RAG query failed: {e}", exc_info=True)
         return make_response(500, {
-            "error": str(e), 
+            "answer": {"summary": "An error occurred while processing your request. Please try again."},
+            "query": payload.get("query", ""),
             "success": False,
-            "error_type": "simple_rag_error",
-            "timestamp": time.time()
+            "error": str(e),
+            "error_type": "simple_rag_error"
         })
 # =====================================================
 # MAIN LAMBDA HANDLER
@@ -316,5 +324,3 @@ def lambda_handler(event, context):
             "success": False,
             "error_type": "critical"
         })
-
-

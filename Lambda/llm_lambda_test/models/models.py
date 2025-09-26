@@ -106,3 +106,43 @@ class RAGSimpleResponse(BaseModel):
     # Parameters used for monitoring
     parameters_used: dict = {}
 
+
+
+
+class SimpleRAGRequest(BaseModel):
+    # Required fields only
+    project_name: str = Field(..., min_length=1, description="Project name")  # Changed back to project_name
+    user_id: str = Field(..., min_length=1, description="User identifier")
+    query: str = Field(..., min_length=1, max_length=2000, description="User query")
+    
+    # Optional fields
+    session_id: Optional[str] = Field(None, description="Session identifier")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="All other configuration and UI metadata")
+    
+    @validator("query")
+    def validate_query(cls, v):
+        if not v.strip():
+            raise ValueError("Query cannot be empty or whitespace only")
+        return v.strip()
+    class Config:
+        schema_extra = {
+            "example": {
+                "project_name": "my_project",  # Changed back to project_name
+                "user_id": "user123", 
+                "session_id": "session456",
+                "query": "How do I reset my device?",
+                "metadata": {
+                    "user_role": "customer",
+                    "locale": "en-US",
+                    "channel": "web",
+                    "query_type": "faq",
+                    "urgency": "low",
+                    "llm_model": "anthropic.claude-3-opus-20240229",
+                    "embedding_model": "amazon.titan-embed-text-v2:0",
+                    "bedrock_region": "us-east-1",
+                    "top_k": 3,
+                    "max_tokens": 1024,
+                    "temperature": 0.7
+                }
+            }
+        }
