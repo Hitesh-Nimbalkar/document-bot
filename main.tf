@@ -131,7 +131,7 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
 #  LLM LAMBDA FUNCTION (using platform lambda module)
 # ============================================================================
 module "llm_lambda" {
-  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.0.7"
+  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.1.2"
   organization          = var.organization
   project               = var.project
   environment           = var.environment
@@ -166,10 +166,11 @@ module "llm_lambda" {
   }, {})
   
   # Add required IAM policies
-  custom_policy_arns = [
-    aws_iam_policy.lambda_dynamodb_policy.arn,
-    aws_iam_policy.lambda_s3_policy.arn
-  ]
+  custom_policy_arns = {
+    dynamodb = aws_iam_policy.lambda_dynamodb_policy.arn
+    s3       = aws_iam_policy.lambda_s3_policy.arn
+  }
+
   
   common_tags = var.common_tags
 }
