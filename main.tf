@@ -227,7 +227,7 @@ resource "aws_lambda_permission" "api_gateway" {
 # AMPLIFY MODULE (with base_directory)
 # ===============================
 module "amplify_ui" {
-  source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.0.8"
+  source        = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/amplify?ref=v0.0.9"
   organization  = var.organization
   environment   = var.environment
   project       = var.project
