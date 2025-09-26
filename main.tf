@@ -200,7 +200,7 @@ module "api_gateway" {
   stage_name = "dev"
   endpoints = [
     {
-      path                     = ""
+      path                     = "bot"
       http_method              = "POST"
       integration_type         = "AWS_PROXY"
       integration_uri          = module.llm_lambda.lambda_invoke_arn
