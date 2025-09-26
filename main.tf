@@ -71,7 +71,7 @@ module "llm_lambda" {
   project               = var.project
   environment           = var.environment
   purpose               = "llm"
-  image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.1"
+  image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.2"
   memory_size           = 512
   timeout               = 30
   environment_variables = merge({
