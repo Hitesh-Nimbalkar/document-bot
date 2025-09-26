@@ -240,7 +240,7 @@ module "amplify_ui" {
   github_token = null   # if using Amplify GitHub App
   enable_auto_build = false
   # Deploy only /ui folder
-  base_directory = "ui"
+  base_directory = "/ui"
   # Inject backend API URL into frontend
   environment_variables = {
     API_URL = module.api_gateway.invoke_url
