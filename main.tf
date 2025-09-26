@@ -191,7 +191,7 @@ resource "aws_iam_user_policy" "allow_assume_lambda_role" {
 # API GATEWAY MODULE
 # ===============================
 module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.5"
+  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.6"
   aws_region   = local.account_region
   organization = var.organization
   environment  = var.environment
@@ -203,14 +203,14 @@ module "api_gateway" {
       path                     = "ingest_data"
       http_method              = "POST"
       integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+      integration_uri          = module.llm_lambda.lambda_invoke_arn
       integration_http_method  = "POST"
     },
     {
       path                     = "doc_compare"
       http_method              = "POST"
       integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_function_invoke_arn
+      integration_uri          = module.llm_lambda.lambda_invoke_arn
       integration_http_method  = "POST"
     }
   ]
