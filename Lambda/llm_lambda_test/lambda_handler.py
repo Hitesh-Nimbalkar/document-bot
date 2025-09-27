@@ -48,7 +48,6 @@ from models.models import SimpleRAGRequest
 # ---------------------------
 logger = CustomLogger(__name__)
 s3 = boto3.client("s3")
-
 # =====================================================
 # RESPONSE HELPER with CORS
 # =====================================================
@@ -58,18 +57,29 @@ def make_response(status_code, body):
         response = {
             "statusCode": status_code,
             "headers": {
+                # ✅ Must match API Gateway
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
-                "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Session-ID",
+                "Access-Control-Allow-Methods": "OPTIONS,POST",
+                "Access-Control-Allow-Headers": (
+                    "Content-Type,"
+                    "X-Amz-Date,"
+                    "Authorization,"
+                    "X-Api-Key,"
+                    "X-Amz-Security-Token,"
+                    "X-Session-ID,"
+                    "X-User-ID"
+                ),
                 "Content-Type": "application/json"
             },
             "body": body if isinstance(body, str) else json.dumps(body, default=str)
         }
-        # add timestamp if not present
+
+        # Optional: add timestamp if not already in body
         if isinstance(body, dict) and "timestamp" not in body:
             parsed_body = json.loads(response["body"])
             parsed_body["timestamp"] = datetime.datetime.utcnow().isoformat()
             response["body"] = json.dumps(parsed_body, default=str)
+
         return response
     except Exception as e:
         logger.error(f"Error creating response: {e}")
@@ -77,8 +87,16 @@ def make_response(status_code, body):
             "statusCode": 500,
             "headers": {
                 "Access-Control-Allow-Origin": "*",
-                "Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
-                "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Session-ID",
+                "Access-Control-Allow-Methods": "OPTIONS,POST",
+                "Access-Control-Allow-Headers": (
+                    "Content-Type,"
+                    "X-Amz-Date,"
+                    "Authorization,"
+                    "X-Api-Key,"
+                    "X-Amz-Security-Token,"
+                    "X-Session-ID,"
+                    "X-User-ID"
+                ),
                 "Content-Type": "application/json"
             },
             "body": json.dumps({"error": "Response formatting error", "details": str(e)})

@@ -48,6 +48,11 @@ class SessionManager {
         return this.isValidSession();
     }
 
+    // ✅ NEW — easy way to get just the sessionId
+    getSessionId() {
+        return this.isValidSession() ? this.currentSession.sessionId : null;
+    }
+
     // Headers for API requests
     getAuthHeaders() {
         if (!this.isValidSession()) return {};
@@ -71,5 +76,5 @@ class SessionManager {
     }
 }
 
-// Export for global use
+// Export class globally (optional for debugging, but not needed by other modules)
 window.SessionManager = SessionManager;

@@ -1,8 +1,3 @@
-
-
-
-
-
 /**
  * Upload Management Module
  * Handles direct S3 uploads via Lambda (Base64 encoded)
@@ -16,36 +11,42 @@ class UploadManager {
         this.uploadedFiles = []; // Store upload response data for processing step
         this.STORAGE_KEY = 'document_bot_upload_responses'; // Local storage key
     }
+
     async uploadSelectedFiles() {
         if (!this.uiManager.selectedFiles.length) {
             this.showError("Please select files to upload");
             return;
         }
+
         const projectName = document.getElementById("projectNameInput")?.value.trim();
         if (!projectName) {
             this.showError("Please enter a project name");
             return;
         }
+
         this.isUploading = true;
         const uploadBtn = document.getElementById("uploadBtn");
         const progressBar = document.getElementById("uploadProgressBar");
         const uploadStatus = document.getElementById("uploadStatus");
         const dropZone = document.getElementById("dropZone");
+
         if (uploadBtn) uploadBtn.disabled = true;
         if (progressBar) {
             progressBar.style.width = "0%";
             progressBar.innerText = "0%";
         }
         if (uploadStatus) uploadStatus.innerHTML = "";
+
         try {
             this.uploadedFiles = []; // Clear previous upload data
-            this.clearLocalStorageUploadData(); // Clear previous stored responses
+            this.clearLocalStorageUploadData();
+
             for (let i = 0; i < this.uiManager.selectedFiles.length; i++) {
                 const file = this.uiManager.selectedFiles[i];
                 const uploadResult = await this.uploadSingleFile(file, projectName);
-                
-                // Store the EXACT Lambda response
+
                 this.uploadedFiles.push(uploadResult);
+
                 const percent = Math.round(((i + 1) / this.uiManager.selectedFiles.length) * 100);
                 if (progressBar) {
                     progressBar.style.width = `${percent}%`;
@@ -57,6 +58,7 @@ class UploadManager {
                     </div>`;
                 }
             }
+
             if (uploadStatus) {
                 uploadStatus.innerHTML = `<div class="text-success">✅ All files uploaded successfully!</div>`;
             }
@@ -64,11 +66,10 @@ class UploadManager {
                 dropZone.classList.remove("uploading");
                 dropZone.classList.add("success");
             }
+
             console.log("📦 Upload responses stored:", this.uploadedFiles);
-            
-            // Store responses in localStorage for persistence
             this.saveToLocalStorage();
-            
+
             setTimeout(() => {
                 this.uiManager.resetUploadForm();
                 if (projectName) this.uiManager.loadProjectFiles(projectName);
@@ -87,69 +88,64 @@ class UploadManager {
             this.isUploading = false;
         }
     }
+
     async uploadSingleFile(file, projectName) {
-        if (!this.sessionManager?.isValidSession()) {
-            throw new Error("No valid session. Please login again.");
-        }
-        
-        // Check file size before processing (30MB limit to account for base64 exncoding)
-        const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB in bytes
+        // ✅ Make sure session is valid
+        const sessionId = this.sessionManager?.getSessionId?.();
+        if (!sessionId) throw new Error("No valid session. Please login again.");
+
+        // ✅ File size check (30MB)
+        const MAX_FILE_SIZE = 30 * 1024 * 1024;
         if (file.size > MAX_FILE_SIZE) {
-            throw new Error(`File "${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Maximum allowed size is 30MB.`);
+            throw new Error(`File "${file.name}" is too large (${(file.size / (1024 * 1024)).toFixed(1)}MB). Max 30MB allowed.`);
         }
-        
-        // Convert file → Base64
+
         const fileBase64 = await this.readFileAsBase64(file);
-        
-        // Get selected embedding model information
-        const embeddingPayload = this.modelManager?.getSelectedEmbeddingModelPayload() || {};
-        console.log("🔍 Debug - embeddingPayload:", embeddingPayload);
-        console.log("🔍 Debug - modelManager exists:", !!this.modelManager);
-        console.log("🔍 Debug - hasSelectedModel:", this.modelManager?.hasSelectedModel());
-        
-        // Ensure we always have embedding fields - critical for backend validation
+
+        const embeddingPayload = this.modelManager?.getSelectedEmbeddingModelPayload?.() || {};
         const embedding_provider = embeddingPayload.embedding_provider || "bedrock";
         const embedding_model = embeddingPayload.embedding_model || "amazon.titan-embed-text-v2:0";
-        
-        // Build payload
+
         const payload = {
             project_name: projectName,
             file_name: file.name,
             content_type: file.type || this.getContentTypeFromExtension(file.name),
-            file_content: fileBase64, // ✅ send file as base64
-            session_id: this.sessionManager.currentSession.sessionId,
-            user_id: this.sessionManager.currentSession.user?.username || "unknown",
-            // Add embedding model information - guaranteed to be present
-            embedding_provider: embedding_provider,
-            embedding_model: embedding_model
+            file_content: fileBase64,
+            session_id: sessionId,
+            user_id: this.sessionManager?.currentSession?.user?.username || "unknown",
+            embedding_provider,
+            embedding_model
         };
-        console.log("🔍 Debug - Final payload keys:", Object.keys(payload));
-        console.log("🔍 Debug - embedding_provider value:", payload.embedding_provider);
-        console.log("🔍 Debug - embedding_model value:", payload.embedding_model);
+
         console.log("📤 Uploading via Lambda:", payload);
-        const response = await makeApiRequest(
-            window.API_ENDPOINTS.GET_PRESIGNED_URL, // still using same route
+
+        // ✅ Use updated makeApiRequest from api-config.js
+        const response = await window.makeApiRequest(
+            window.API_ENDPOINTS.GET_PRESIGNED_URL,
             payload
         );
+
         const responseBody = typeof response.body === "string"
             ? JSON.parse(response.body)
             : response.body || response;
-        // Check if upload was successful based on statusCode instead of success field
+
         if (response.statusCode !== 200) {
             throw new Error(responseBody.error || "Upload failed at Lambda");
         }
+
         console.log(`✅ Uploaded to S3: ${file.name}`);
-        // Return the COMPLETE RAW Lambda response - NO modifications!
         return response;
     }
+
     readFileAsBase64(file) {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]); // remove prefix like data:...
+            reader.onload = () => resolve(reader.result.split(",")[1]);
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
     }
+
     getContentTypeFromExtension(fileName) {
         const ext = fileName.split(".").pop()?.toLowerCase();
         const map = {
@@ -163,26 +159,17 @@ class UploadManager {
         };
         return map[ext] || "application/octet-stream";
     }
-    // Methods for Lambda response storage (core functionality)
+
+    // 🔹 Local storage helpers
     getUploadedFilesData() {
-        console.log("🔍 Debug - getUploadedFilesData called");
-        console.log("🔍 Debug - uploadedFiles in memory:", this.uploadedFiles.length);
-        
-        // First try from memory, then from localStorage
-        if (this.uploadedFiles && this.uploadedFiles.length > 0) {
-            console.log("🔍 Debug - returning from memory:", this.uploadedFiles);
-            return this.uploadedFiles;
-        }
-        
-        // Load from localStorage if not in memory
-        const fromStorage = this.loadFromLocalStorage();
-        console.log("🔍 Debug - loaded from localStorage:", fromStorage.length, fromStorage);
-        return fromStorage;
+        return this.uploadedFiles?.length ? this.uploadedFiles : this.loadFromLocalStorage();
     }
+
     clearUploadedFilesData() {
         this.uploadedFiles = [];
         this.clearLocalStorageUploadData();
     }
+
     saveToLocalStorage() {
         try {
             localStorage.setItem(this.STORAGE_KEY, JSON.stringify(this.uploadedFiles));
@@ -191,6 +178,7 @@ class UploadManager {
             console.error("Failed to save upload responses:", err);
         }
     }
+
     loadFromLocalStorage() {
         try {
             const stored = localStorage.getItem(this.STORAGE_KEY);
@@ -200,6 +188,7 @@ class UploadManager {
             return [];
         }
     }
+
     clearLocalStorageUploadData() {
         try {
             localStorage.removeItem(this.STORAGE_KEY);
@@ -208,7 +197,7 @@ class UploadManager {
             console.error("Failed to clear upload responses:", err);
         }
     }
-    // Add error display method
+
     showError(message) {
         console.error("❌", message);
         const statusDiv = document.getElementById("processingStatus");
@@ -220,8 +209,6 @@ class UploadManager {
         }
     }
 }
+
 // Export globally
 window.UploadManager = UploadManager;
-
-
-

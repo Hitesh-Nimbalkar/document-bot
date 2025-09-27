@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -82,60 +81,47 @@
       </button>
     </form>
   </div>
-  <!-- Load API config for session management -->
+
+  <!-- API config just sets BASE_URL and API helpers -->
   <script src="api-config.js"></script>
-  
+
   <script>
-    // Generate a proper session ID
+    // Generate a unique session ID
     function generateSessionId() {
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substr(2, 9);
-      return `sess_${timestamp}_${random}`;
+      return `sess_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
-    // Save session using proper session management
+
+    // Save session in the format SessionManager expects
     function saveSession(userData) {
-      try {
-        // Generate and set session ID using api-config.js functions
-        const sessionId = generateSessionId();
-        
-        // Use the proper session management from api-config.js
-        if (window.setSessionId && window.setSessionId(sessionId)) {
-          // Also save additional user data separately if needed
-          const sessionData = {
-            ...userData,
-            sessionId: sessionId,
-            loginTime: Date.now()
-          };
-          localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
-          console.log("✅ Session saved with ID:", sessionId);
-          return sessionId;
-        } else {
-          throw new Error("Failed to set session ID");
-        }
-      } catch (error) {
-        console.error("❌ Failed to save session:", error);
-        // Fallback to old method if api-config.js is not loaded
-        const sessionData = {
-          ...userData,
-          sessionId: generateSessionId(),
-          loginTime: Date.now()
-        };
-        localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
-        return sessionData.sessionId;
-      }
+      const sessionId = generateSessionId();
+      const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h expiry
+      const sessionData = {
+        sessionId,
+        user: userData.user,
+        isLoggedIn: true,
+        expiresAt,
+        loginTime: Date.now()
+      };
+      localStorage.setItem("documentBot_session", JSON.stringify(sessionData));
+      console.log("✅ Session saved with ID:", sessionId);
+      return sessionId;
     }
+
     const loginForm = document.getElementById('loginForm');
     const loginBtn = document.getElementById('loginBtn');
     const loginText = document.getElementById('loginText');
     const loadingSpinner = document.getElementById('loadingSpinner');
     const errorMessage = document.getElementById('errorMessage');
     const successMessage = document.getElementById('successMessage');
+
     function showError(msg) {
-      errorMessage.textContent = msg; errorMessage.style.display = 'block';
+      errorMessage.textContent = msg;
+      errorMessage.style.display = 'block';
       successMessage.style.display = 'none';
     }
     function showSuccess(msg) {
-      successMessage.textContent = msg; successMessage.style.display = 'block';
+      successMessage.textContent = msg;
+      successMessage.style.display = 'block';
       errorMessage.style.display = 'none';
     }
     function setLoading(isLoading) {
@@ -143,15 +129,22 @@
       loginText.style.display = isLoading ? 'none' : 'inline';
       loadingSpinner.style.display = isLoading ? 'inline-block' : 'none';
     }
+
     loginForm.addEventListener('submit', async (e) => {
       e.preventDefault();
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value.trim();
-      if (!username || !password) { showError("Please enter both username and password"); return; }
+      if (!username || !password) {
+        showError("Please enter both username and password");
+        return;
+      }
+
       setLoading(true);
       await new Promise(r => setTimeout(r, 1000)); // simulate login delay
+
       try {
-        const sessionId = saveSession({ user: { username, role: "user" }, isLoggedIn: true });
+        // Normally you'd call your real login API here
+        const sessionId = saveSession({ user: { username, role: "user" } });
         showSuccess(`Logging in... Session created! (ID: ${sessionId.substr(0, 12)}...)`);
         setTimeout(() => {
           window.location.href = "dashboard.html";
@@ -165,4 +158,3 @@
   </script>
 </body>
 </html>
-
