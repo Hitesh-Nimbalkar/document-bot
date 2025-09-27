@@ -2,11 +2,19 @@
 // API CONFIGURATION
 // ====================================
 
-// ✅ Choose the correct API base URL
+//✅ Choose the correct API base URL
 const BASE_URL =
     window?.API_BASE_URL ||                       // runtime-injected
     (typeof process !== "undefined" && process.env?.API_BASE_URL) ||
     "https://j6ufq5gja9.execute-api.ap-south-1.amazonaws.com/dev/bot"; // fallback if nothing injected
+
+// const BASE_URL =
+//     window?.API_BASE_URL ||                      // if injected at runtime (browser env)
+//     (typeof process !== "undefined" && process.env?.API_BASE_URL) || // if running in Node
+//     "http://localhost:4000";                      // fallback default
+
+
+
 
 // ✅ Central list of all API endpoints
 window.API_ENDPOINTS = {

@@ -1,5 +1,5 @@
-version: "3.8"
-
+# docker-compose.yml
+# ⚡ removed "version" key (it's obsolete)
 services:
   lambda:
     build: ./Lambda/llm_lambda_test
@@ -47,3 +47,16 @@ services:
       LAMBDA_PORT: "8080"
     depends_on:
       - lambda
+
+  portainer:                       # 👈 Added Portainer UI
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: always
+    ports:
+      - "9001:9000"                # Web UI will be at http://localhost:9001
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  portainer_data:
