@@ -62,162 +62,188 @@ resource "aws_dynamodb_table" "metadata" {
   }
   tags = var.common_tags
 }
-# -----------------------------
-# IAM Policy for DynamoDB access
-# -----------------------------
-resource "aws_iam_policy" "lambda_dynamodb_policy" {
-  name        = "LambdaDynamoDBPolicy"
-  description = "Allow Lambda to access chat history and metadata tables"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "dynamodb:GetItem",
-          "dynamodb:PutItem",
-          "dynamodb:UpdateItem",
-          "dynamodb:Query",
-          "dynamodb:Scan"
-        ]
-        Resource = [
-          aws_dynamodb_table.chat_history.arn,
-          aws_dynamodb_table.metadata.arn
-        ]
-      }
-    ]
-  })
-}
-# -----------------------------
-# IAM Policy for S3 access
-# -----------------------------
-resource "aws_iam_policy" "lambda_s3_policy" {
-  name        = "LambdaS3AccessPolicy"
-  description = "Allow Lambda full access to the documents bucket"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:ListBucket"
-        ]
-        Resource = [
-          module.config_bucket.bucket_arn,
-          "${module.config_bucket.bucket_arn}/*"
-        ]
-      }
-    ]
-  })
-}
-resource "aws_iam_user_policy" "allow_assume_lambda_role" {
-  name = "allow-assume-lambda-role"
-  user = "HiteshNimbalkar"
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = "sts:AssumeRole"
-        Resource = "arn:aws:iam::454842419567:role/org-dev-chatbot-document-v2-lambda-llm_lambda_test-role"
-      }
-    ]
-  })
-}
-#============================================================================
-#  LLM LAMBDA FUNCTION (using platform lambda module)
-# ============================================================================
-module "llm_lambda" {
-  source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.1.2"
-  organization          = var.organization
-  project               = var.project
-  environment           = var.environment
-  purpose               = "llm"
-  image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.3"
-  memory_size           = 512
-  timeout               = 30
-  environment_variables = merge({
-    # S3 Configuration
-    CONFIG_BUCKET          = module.config_bucket.bucket_id
-    CONFIG_KEY             = "config/config.yaml"
-    DOCUMENTS_S3_BUCKET    = module.config_bucket.bucket_id
-    TEMP_DATA_KEY          = "project_data/uploads/temp"
-    DOCUMENTS_DATA_KEY     = "project_data/uploads/documents"
+# # -----------------------------
+# # IAM Policy for DynamoDB access
+# # -----------------------------
+# resource "aws_iam_policy" "lambda_dynamodb_policy" {
+#   name        = "LambdaDynamoDBPolicy"
+#   description = "Allow Lambda full access to chat history and metadata tables"
+
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "dynamodb:BatchGetItem",
+#           "dynamodb:BatchWriteItem",
+#           "dynamodb:ConditionCheckItem",
+#           "dynamodb:PutItem",
+#           "dynamodb:DeleteItem",
+#           "dynamodb:GetItem",
+#           "dynamodb:Query",
+#           "dynamodb:Scan",
+#           "dynamodb:UpdateItem",
+#           "dynamodb:DescribeTable"
+#         ]
+#         Resource = [
+#           aws_dynamodb_table.chat_history.arn,
+#           aws_dynamodb_table.metadata.arn,
+#           "${aws_dynamodb_table.metadata.arn}/index/*" # include GSI for metadata
+#         ]
+#       }
+#     ]
+#   })
+# }
+# # -----------------------------
+# # IAM Policy for S3 access
+# # -----------------------------
+# resource "aws_iam_policy" "lambda_s3_policy" {
+#   name        = "LambdaS3AccessPolicy"
+#   description = "Allow Lambda full access to the documents bucket"
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect   = "Allow"
+#         Action   = [
+#           "s3:GetObject",
+#           "s3:PutObject",
+#           "s3:DeleteObject",
+#           "s3:ListBucket"
+#         ]
+#         Resource = [
+#           module.config_bucket.bucket_arn,
+#           "${module.config_bucket.bucket_arn}/*"
+#         ]
+#       }
+#     ]
+#   })
+# }
+# resource "aws_iam_user_policy" "allow_assume_lambda_role" {
+#   name = "allow-assume-lambda-role"
+#   user = "HiteshNimbalkar"
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect   = "Allow"
+#         Action   = "sts:AssumeRole"
+#         Resource = "arn:aws:iam::454842419567:role/org-dev-chatbot-document-v2-lambda-llm_lambda_test-role"
+#       }
+#     ]
+#   })
+# }
+
+# resource "aws_iam_policy" "lambda_bedrock_invoke" {
+#   name        = "LambdaBedrockInvokePolicy"
+#   description = "Allow Lambda to invoke Amazon Bedrock models"
+
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect = "Allow"
+#         Action = [
+#           "bedrock:InvokeModel",
+#           "bedrock:InvokeModelWithResponseStream"
+#         ]
+#         Resource = "*" 
+#       }
+#     ]
+#   })
+# }
+# #============================================================================
+# #  LLM LAMBDA FUNCTION (using platform lambda module)
+# # ============================================================================
+# module "llm_lambda" {
+#   source                = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/docker_lambda?ref=v0.1.2"
+#   organization          = var.organization
+#   project               = var.project
+#   environment           = var.environment
+#   purpose               = "llm"
+#   image_uri             = "${aws_ecr_repository.llm_lambda.repository_url}:0.0.3"
+#   memory_size           = 512
+#   timeout               = 30
+#   environment_variables = merge({
+#     # S3 Configuration
+#     CONFIG_BUCKET          = module.config_bucket.bucket_id
+#     CONFIG_KEY             = "config/config.yaml"
+#     DOCUMENTS_S3_BUCKET    = module.config_bucket.bucket_id
+#     TEMP_DATA_KEY          = "project_data/uploads/temp"
+#     DOCUMENTS_DATA_KEY     = "project_data/uploads/documents"
     
-    # DynamoDB Tables
-    CHAT_HISTORY_TABLE     = aws_dynamodb_table.chat_history.name
-    METADATA_TABLE         = aws_dynamodb_table.metadata.name
+#     # DynamoDB Tables
+#     CHAT_HISTORY_TABLE     = aws_dynamodb_table.chat_history.name
+#     METADATA_TABLE         = aws_dynamodb_table.metadata.name
     
-    # Vector Database Configuration (Qdrant)
-    VECTOR_DB_HOST         = "28b2ee72-9fc9-4ecd-acdf-d024c1c7bf5d.eu-west-1-0.aws.cloud.qdrant.io"
-    VECTOR_DB_PORT         = "6333"
-    VECTOR_DB_API_KEY      = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.U6PprcKnZl1ByQCBOurGp-ObPUmn0hKaUeZtenYEQ_8"
-    COLLECTION_NAME        = "Demo"
-    VECTOR_DIMENSION       = "1024"
+#     # Vector Database Configuration (Qdrant)
+#     VECTOR_DB_HOST         = "28b2ee72-9fc9-4ecd-acdf-d024c1c7bf5d.eu-west-1-0.aws.cloud.qdrant.io"
+#     VECTOR_DB_PORT         = "6333"
+#     VECTOR_DB_API_KEY      = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJhY2Nlc3MiOiJtIn0.U6PprcKnZl1ByQCBOurGp-ObPUmn0hKaUeZtenYEQ_8"
+#     COLLECTION_NAME        = "Demo"
+#     VECTOR_DIMENSION       = "1024"
     
-    # API Key Secrets (for AWS Secrets Manager)
-    # GOOGLE_API_KEY_SECRET  = "google-api-key-secret-name"
-    # GROQ_API_KEY_SECRET    = "groq-api-key-secret-name"
-    # OPENAI_API_KEY_SECRET  = "openai-api-key-secret-name"
-    # BEDROCK_API_KEY_SECRET = "bedrock-api-key-secret-name"
-  }, {})
+#     # API Key Secrets (for AWS Secrets Manager)
+#     # GOOGLE_API_KEY_SECRET  = "google-api-key-secret-name"
+#     # GROQ_API_KEY_SECRET    = "groq-api-key-secret-name"
+#     # OPENAI_API_KEY_SECRET  = "openai-api-key-secret-name"
+#     # BEDROCK_API_KEY_SECRET = "bedrock-api-key-secret-name"
+#   }, {})
   
-  # Add required IAM policies
-  custom_policy_arns = {
-    dynamodb = aws_iam_policy.lambda_dynamodb_policy.arn
-    s3       = aws_iam_policy.lambda_s3_policy.arn
-  }
-
+#   # Add required IAM policies
+#   custom_policy_arns = {
+#     dynamodb = aws_iam_policy.lambda_dynamodb_policy.arn
+#     s3       = aws_iam_policy.lambda_s3_policy.arn
+#     bedrock  = aws_iam_policy.lambda_bedrock_invoke.arn
+#   }
   
-  common_tags = var.common_tags
-}
-# ============================================================================
+#   common_tags = var.common_tags
+# }
+# # ============================================================================
 
 
-# -----------------------------------------------------
-# Upload config.yaml into the new config bucket
-# -----------------------------------------------------
-resource "aws_s3_object" "config_file" {
-  bucket = module.config_bucket.bucket_id     # new bucket created above
-  key    = "config/config.yaml"               # object path in bucket
-  source = "${path.module}/s3/config/config.yaml"  # local file path
-  etag   = filemd5("${path.module}/s3/config/config.yaml")
-  depends_on = [module.config_bucket]         # ensures bucket is created first
-}
+# # -----------------------------------------------------
+# # Upload config.yaml into the new config bucket
+# # -----------------------------------------------------
+# resource "aws_s3_object" "config_file" {
+#   bucket = module.config_bucket.bucket_id     # new bucket created above
+#   key    = "config/config.yaml"               # object path in bucket
+#   source = "${path.module}/s3/config/config.yaml"  # local file path
+#   etag   = filemd5("${path.module}/s3/config/config.yaml")
+#   depends_on = [module.config_bucket]         # ensures bucket is created first
+# }
 
 
-# ===============================
-# API GATEWAY MODULE
-# ===============================
-module "api_gateway" {
-  source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.7"
-  aws_region   = local.account_region
-  organization = var.organization
-  environment  = var.environment
-  project      = var.project
-  purpose      = "document-portal"
-  stage_name = "dev"
-  endpoints = [
-    {
-      path                     = "bot"
-      http_method              = "POST"
-      integration_type         = "AWS_PROXY"
-      integration_uri          = module.llm_lambda.lambda_invoke_arn
-      integration_http_method  = "POST"
-    }
-  ]
-  common_tags = var.common_tags
-}
-resource "aws_lambda_permission" "api_gateway" {
-  statement_id  = "AllowAPIGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = module.llm_lambda.lambda_function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
-}
+# # ===============================
+# # API GATEWAY MODULE
+# # ===============================
+# module "api_gateway" {
+#   source       = "git::https://github.com/Hitesh-Nimbalkar/aws-platform.git//modules/api_gateway?ref=v0.0.7"
+#   aws_region   = local.account_region
+#   organization = var.organization
+#   environment  = var.environment
+#   project      = var.project
+#   purpose      = "document-portal"
+#   stage_name = "dev"
+#   endpoints = [
+#     {
+#       path                     = "bot"
+#       http_method              = "POST"
+#       integration_type         = "AWS_PROXY"
+#       integration_uri          = module.llm_lambda.lambda_invoke_arn
+#       integration_http_method  = "POST"
+#     }
+#   ]
+#   common_tags = var.common_tags
+# }
+# resource "aws_lambda_permission" "api_gateway" {
+#   statement_id  = "AllowAPIGatewayInvoke"
+#   action        = "lambda:InvokeFunction"
+#   function_name = module.llm_lambda.lambda_function_name
+#   principal     = "apigateway.amazonaws.com"
+#   source_arn    = "${module.api_gateway.api_gateway_execution_arn}/*/*"
+# }
 # ===============================
 # AMPLIFY MODULE (with base_directory)
 # ===============================
