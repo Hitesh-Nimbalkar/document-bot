@@ -108,16 +108,32 @@ def make_response(status_code, body):
 def handle_ingest_route(event, payload):
     try:
         logger.info(f"🚀 Handling ingest route with payload: {payload}")
+
+        # 🔹 Unwrap if payload came in as {"lambda_upload_responses": [{...body...}]}
+        if "lambda_upload_responses" in payload:
+            try:
+                first = payload["lambda_upload_responses"][0]
+                body_json = first.get("body")
+                if isinstance(body_json, str):
+                    body_json = json.loads(body_json)
+                # Merge body_json back into payload so it has session_id/project_name/user_id
+                payload = {**payload, **body_json}
+                logger.debug(f"✅ Flattened payload now: {payload}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to unwrap lambda_upload_responses: {e}")
+
+        # Now payload should have session_id, project_name, user_id
         ingest_result = ingest_document(payload)
 
         if hasattr(ingest_result, "results"):
             body = {
-                "summary": ingest_result.summary,
+                "summary": getattr(ingest_result, "summary", None),
                 "results": [r.dict() for r in ingest_result.results]
             }
             return make_response(200, body)
         else:
             return make_response(ingest_result.statusCode, ingest_result.dict())
+
     except Exception as e:
         logger.error(f"💥 Error in handle_ingest_route: {e}", exc_info=True)
         return make_response(500, {"error": f"Error in ingestion: {str(e)}"})
